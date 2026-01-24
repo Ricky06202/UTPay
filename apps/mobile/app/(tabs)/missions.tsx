@@ -33,6 +33,9 @@ export default function MissionsScreen() {
   const [whatsapp, setWhatsapp] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [viewingApplicationsMissionId, setViewingApplicationsMissionId] = useState<number | null>(null);
+  const [applications, setApplications] = useState<any[]>([]);
+  const [isLoadingApplications, setIsLoadingApplications] = useState(false);
 
   // Alert Modal State
   const [alertConfig, setAlertConfig] = useState<{
@@ -79,11 +82,35 @@ export default function MissionsScreen() {
 
   const fetchMissions = async () => {
     try {
-      const response = await fetch(`${API_URL}/missions/open`);
-      const data = await response.json();
-      if (data.success) {
-        setMissions(data.missions);
+      const [openRes, userRes] = await Promise.all([
+        fetch(`${API_URL}/missions/open`),
+        user?.id ? fetch(`${API_URL}/missions/user/${user.id}`) : Promise.resolve(null)
+      ]);
+
+      const openData = await openRes.json();
+      let allMissions = openData.success ? openData.missions : [];
+
+      if (userRes) {
+        const userData = await userRes.json();
+        if (userData.success) {
+          // Combinar misiones abiertas con las del usuario, evitando duplicados
+          const userMissions = userData.missions;
+          const openIds = new Set(allMissions.map((m: any) => m.id));
+          
+          userMissions.forEach((m: any) => {
+            if (!openIds.has(m.id)) {
+              allMissions.push(m);
+            }
+          });
+          
+          // Ordenar por fecha de creación descendente
+          allMissions.sort((a: any, b: any) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+        }
       }
+
+      setMissions(allMissions);
     } catch (error) {
       console.error('Error fetching missions:', error);
     } finally {
@@ -175,7 +202,7 @@ export default function MissionsScreen() {
 
     showAlert(
       '¿Eliminar Tarea?',
-      'Se cancelará la tarea y se te devolverá la recompensa a tu saldo.',
+      'Se eliminará la tarea permanentemente. Si hay postulantes, sus postulaciones también se borrarán y se te devolverá la recompensa a tu saldo.',
       'confirm',
       executeCancel
     );
@@ -193,6 +220,49 @@ export default function MissionsScreen() {
     setSlots(item.slots.toString());
     setWhatsapp(item.whatsapp || '');
     setIsCreateModalVisible(true);
+  };
+
+  const fetchApplications = async (missionId: number) => {
+    try {
+      setIsLoadingApplications(true);
+      setViewingApplicationsMissionId(missionId);
+      const response = await fetch(`${API_URL}/missions/applications/${missionId}`);
+      const data = await response.json();
+      if (data.success) {
+        setApplications(data.applications);
+      } else {
+        showAlert('Error', data.error || 'No se pudieron cargar las postulaciones', 'error');
+      }
+    } catch (error: any) {
+      console.error('Error fetching applications:', error);
+      const errorMessage = error instanceof TypeError && error.message === 'Network request failed' 
+        ? 'Error de conexión. Verifica tu internet.' 
+        : error.message;
+      showAlert('Error', 'No se pudieron cargar las postulaciones: ' + errorMessage, 'error');
+    } finally {
+      setIsLoadingApplications(false);
+    }
+  };
+
+  const handleAcceptApplication = async (applicationId: number) => {
+    try {
+      const response = await fetch(`${API_URL}/missions/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        showAlert('¡Éxito!', 'Has aceptado al estudiante para esta tarea', 'success');
+        setViewingApplicationsMissionId(null);
+        fetchMissions();
+      } else {
+        showAlert('Error', data.message || 'No se pudo aceptar la postulación', 'error');
+      }
+    } catch (error) {
+      showAlert('Error', 'Error de conexión al aceptar la postulación', 'error');
+    }
   };
 
   const handleApply = async (missionId: number) => {
@@ -248,6 +318,11 @@ export default function MissionsScreen() {
             <IconSymbol name="assignment" size={14} color="#6b7280" />
             <Text className="ml-1 text-xs text-gray-500">{item.slots} {item.slots === 1 ? 'plaza disponible' : 'plazas disponibles'}</Text>
           </View>
+          {item.status !== 'open' && (
+            <View className="self-start px-2 py-0.5 mt-2 bg-orange-50 rounded-lg">
+              <Text className="text-[10px] font-bold text-orange-600 uppercase">{item.status}</Text>
+            </View>
+          )}
         </View>
         <View className="items-center px-4 py-2 bg-green-50 rounded-2xl dark:bg-green-900/20">
           <Text className="text-lg font-black text-green-600 dark:text-green-400">${item.reward.toFixed(2)}</Text>
@@ -265,16 +340,22 @@ export default function MissionsScreen() {
         {isOwner ? (
           <View className="flex-row">
             <TouchableOpacity 
-              onPress={() => handleEditPress(item)}
-              className="justify-center items-center mr-2 w-10 h-10 bg-gray-100 rounded-full dark:bg-gray-700"
+              onPress={() => fetchApplications(item.id)}
+              className="justify-center items-center mr-2 px-4 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
             >
-              <IconSymbol name="chevron.left.forwardslash.chevron.right" size={18} color="#4b5563" />
+              <Text className="text-xs font-bold text-blue-600 dark:text-blue-400">Ver Postulantes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => handleEditPress(item)}
+              className="justify-center items-center mr-2 w-10 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
+            >
+              <IconSymbol name="pencil" size={18} color="#2563eb" />
             </TouchableOpacity>
             <TouchableOpacity 
               onPress={() => handleCancelTask(item.id)}
               className="justify-center items-center w-10 h-10 bg-red-50 rounded-full dark:bg-red-900/20"
             >
-              <IconSymbol name="close" size={18} color="#ef4444" />
+              <IconSymbol name="trash" size={18} color="#ef4444" />
             </TouchableOpacity>
           </View>
         ) : (
@@ -452,6 +533,62 @@ export default function MissionsScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal para Ver Postulantes */}
+      <Modal
+        visible={viewingApplicationsMissionId !== null}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setViewingApplicationsMissionId(null)}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white dark:bg-gray-800 rounded-t-[50px] p-8 h-[70%]">
+            <View className="flex-row justify-between items-center mb-6">
+              <Text className="text-2xl font-bold text-gray-900 dark:text-white">Postulantes</Text>
+              <TouchableOpacity onPress={() => setViewingApplicationsMissionId(null)}>
+                <IconSymbol name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            {isLoadingApplications ? (
+              <ActivityIndicator size="large" color="#2563eb" className="mt-10" />
+            ) : applications.length === 0 ? (
+              <View className="justify-center items-center py-20">
+                <IconSymbol name="checklist" size={64} color="#d1d5db" />
+                <Text className="mt-4 text-center text-gray-400">Aún no hay postulantes para esta tarea.</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={applications}
+                keyExtractor={(item) => item.id.toString()}
+                renderItem={({ item }) => (
+                  <View className="flex-row justify-between items-center p-4 mb-4 bg-gray-50 rounded-3xl dark:bg-gray-700">
+                    <View className="flex-1 mr-4">
+                      <Text className="text-lg font-bold text-gray-900 dark:text-white">{item.studentName}</Text>
+                      <Text className="text-sm text-gray-500 dark:text-gray-400" numberOfLines={2}>
+                        {item.comment || 'Sin comentario'}
+                      </Text>
+                    </View>
+                    
+                    {item.status === 'pending' ? (
+                      <TouchableOpacity 
+                        onPress={() => handleAcceptApplication(item.id)}
+                        className="px-4 py-2 bg-green-500 rounded-full"
+                      >
+                        <Text className="text-xs font-bold text-white">Aceptar</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View className="px-3 py-1 bg-gray-200 rounded-full">
+                        <Text className="text-xs font-medium text-gray-500 capitalize">{item.status}</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              />
+            )}
           </View>
         </View>
       </Modal>

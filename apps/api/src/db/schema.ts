@@ -40,8 +40,8 @@ export const missions = sqliteTable("missions", {
 
 export const missionApplications = sqliteTable("mission_applications", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  missionId: integer("mission_id").notNull().references(() => missions.id),
-  studentId: integer("student_id").notNull().references(() => users.id),
+  missionId: integer("mission_id").notNull().references(() => missions.id, { onDelete: 'cascade' }),
+  studentId: integer("student_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   status: text("status").default('pending'), // pending, accepted, rejected, completed
   comment: text("comment"),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),

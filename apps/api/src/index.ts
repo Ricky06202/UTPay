@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, or } from 'drizzle-orm'
+import { and, desc, eq, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -285,6 +285,76 @@ app.get('/missions/open', async (c) => {
   }
 })
 
+// 2.2. Listar misiones de un usuario (creadas por él)
+app.get('/missions/user/:userId', async (c) => {
+  try {
+    const userId = parseInt(c.req.param('userId'))
+    const db = createDb(c.env.DB)
+    const userMissions = await db.select({
+      id: missions.id,
+      title: missions.title,
+      description: missions.description,
+      categoryId: missions.categoryId,
+      categoryName: missionCategories.name,
+      reward: missions.reward,
+      slots: missions.slots,
+      whatsapp: missions.whatsapp,
+      status: missions.status,
+      creatorId: missions.creatorId,
+      creatorName: users.name,
+      createdAt: missions.createdAt
+    })
+    .from(missions)
+    .leftJoin(users, eq(missions.creatorId, users.id))
+    .leftJoin(missionCategories, eq(missions.categoryId, missionCategories.id))
+    .where(and(
+      eq(missions.creatorId, userId),
+      sql`${missions.status} != 'cancelled'`
+    ))
+    .orderBy(desc(missions.createdAt))
+    .all()
+
+    return c.json({ success: true, missions: userMissions })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// 2.1. Listar postulantes de una misión (solo para el creador)
+app.get('/missions/applications/:missionId', async (c) => {
+  try {
+    const missionIdStr = c.req.param('missionId')
+    const missionId = parseInt(missionIdStr)
+    
+    if (isNaN(missionId)) {
+      return c.json({ success: false, error: 'ID de misión inválido' }, 400)
+    }
+
+    console.log('Fetching applications for mission:', missionId)
+    const db = createDb(c.env.DB)
+
+    const applications = await db.select({
+      id: missionApplications.id,
+      missionId: missionApplications.missionId,
+      studentId: missionApplications.studentId,
+      studentName: users.name,
+      comment: missionApplications.comment,
+      status: missionApplications.status,
+      createdAt: missionApplications.createdAt
+    })
+    .from(missionApplications)
+    .leftJoin(users, eq(missionApplications.studentId, users.id))
+    .where(eq(missionApplications.missionId, missionId))
+    .all()
+
+    console.log(`Applications found for mission ${missionId}:`, applications.length)
+    return c.json({ success: true, applications })
+  } catch (e: any) {
+    console.error('Error fetching applications:', e)
+    return c.json({ success: false, error: e.message || 'Error interno al cargar postulaciones' }, 500)
+  }
+})
+
 // 3. Postularse a una misión
 app.post('/missions/apply', async (c) => {
   try {
@@ -364,8 +434,8 @@ app.post('/missions/cancel', async (c) => {
       return c.json({ success: false, message: 'No tienes permiso para cancelar esta tarea' }, 403);
     }
 
-    if (mission.status !== 'open') {
-      return c.json({ success: false, message: 'Solo se pueden cancelar tareas abiertas' }, 400);
+    if (mission.status === 'completed') {
+      return c.json({ success: false, message: 'No se pueden eliminar tareas que ya han sido completadas y pagadas' }, 400);
     }
 
     const creator = await db.select().from(users).where(eq(users.id, uId)).get();
@@ -373,19 +443,29 @@ app.post('/missions/cancel', async (c) => {
       return c.json({ success: false, message: 'Usuario creador no encontrado' }, 404);
     }
 
-    await db.batch([
-      db.update(users)
-        .set({ balance: sql`balance + ${mission.reward}` })
-        .where(eq(users.id, uId)),
-      db.update(missions)
-        .set({ status: 'cancelled' })
-        .where(eq(missions.id, mId)),
-      db.update(missionApplications)
-        .set({ status: 'rejected' })
-        .where(eq(missionApplications.missionId, mId))
-    ]);
+    const operations: any[] = [
+      db.delete(missionApplications).where(eq(missionApplications.missionId, mId)),
+      db.delete(missions).where(eq(missions.id, mId))
+    ];
 
-    return c.json({ success: true, message: 'Tarea cancelada y saldo reembolsado' });
+    // Solo reembolsar si la tarea estaba abierta o asignada (dinero en escrow)
+    // Si estaba 'cancelled', el dinero ya se debería haber reembolsado
+    const shouldRefund = mission.status === 'open' || mission.status === 'assigned';
+    
+    if (shouldRefund) {
+      operations.unshift(
+        db.update(users)
+          .set({ balance: sql`balance + ${mission.reward}` })
+          .where(eq(users.id, uId))
+      );
+    }
+
+    await db.batch(operations);
+
+    return c.json({ 
+      success: true, 
+      message: shouldRefund ? 'Tarea eliminada y saldo reembolsado' : 'Tarea eliminada correctamente' 
+    });
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500);
   }

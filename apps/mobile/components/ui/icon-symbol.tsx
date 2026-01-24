@@ -27,6 +27,12 @@ const MAPPING = {
   'info.circle.fill': 'info',
   'close': 'close',
   'assignment': 'assignment',
+  'pencil': 'edit',
+  'trash': 'delete',
+  'checkmark.circle': 'check-circle',
+  'exclamationmark.circle': 'error',
+  'questionmark.circle': 'help',
+  'info.circle': 'info',
 } as const;
 
 export type IconSymbolName = keyof typeof MAPPING;

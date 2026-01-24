@@ -38,7 +38,7 @@ export default function TabLayout() {
         name="missions"
         options={{
           title: 'Misiones',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="checklist" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="assignment" color={color} />,
         }}
       />
       <Tabs.Screen
