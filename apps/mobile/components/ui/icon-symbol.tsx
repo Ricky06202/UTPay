@@ -22,6 +22,9 @@ const MAPPING = {
   'bus': 'directions-bus',
   'coffee': 'local-cafe',
   'book': 'menu-book',
+  'checkmark.circle.fill': 'check-circle',
+  'exclamationmark.circle.fill': 'error',
+  'info.circle.fill': 'info',
 } as const;
 
 export type IconSymbolName = keyof typeof MAPPING;

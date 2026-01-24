@@ -1,7 +1,7 @@
 import { API_URL } from '@/constants/api';
 import * as SecureStore from 'expo-secure-store';
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import { Platform, AppState } from 'react-native';
 
 type User = {
   id: number;
@@ -26,10 +26,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
     loadStorageData();
-  }, []);
+    
+    // Configurar intervalo de actualización automática (cada 15 segundos)
+    const interval = setInterval(() => {
+      if (user && appState.current === 'active') {
+        refreshUser();
+      }
+    }, 15000);
+
+    // Escuchar cambios en el estado de la aplicación (segundo plano/primer plano)
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      appState.current = nextAppState;
+      if (appState.current === 'active' && user) {
+        refreshUser();
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [user?.id]);
 
   async function loadStorageData() {
     try {

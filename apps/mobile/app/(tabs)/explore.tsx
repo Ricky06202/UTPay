@@ -4,11 +4,12 @@ import { useAuth } from '@/context/auth';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const isWeb = Platform.OS === 'web';
 
 export default function ExploreScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
   const [history, setHistory] = useState<any[]>([]);
@@ -18,6 +19,15 @@ export default function ExploreScreen() {
     if (user) {
       fetchFullHistory();
     }
+
+    // Intervalo para refrescar el historial completo automáticamente cada 15 segundos
+    const historyInterval = setInterval(() => {
+      if (user) {
+        fetchFullHistory();
+      }
+    }, 15000);
+
+    return () => clearInterval(historyInterval);
   }, [user?.id]);
 
   const fetchFullHistory = async () => {
@@ -36,7 +46,16 @@ export default function ExploreScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50 dark:bg-gray-900">
+    <View 
+      style={{ 
+        flex: 1, 
+        paddingTop: insets.top,
+        paddingBottom: insets.bottom,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+      }} 
+      className="bg-gray-50 dark:bg-gray-900"
+    >
       <View className={`flex-1 px-6 pt-6 ${isWeb ? 'max-w-[1200px] mx-auto w-full' : ''}`}>
         <View className="flex-row justify-between items-center mb-8">
           <Text className="text-3xl font-bold text-gray-900 dark:text-white">Historial</Text>
@@ -106,6 +125,6 @@ export default function ExploreScreen() {
           />
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }

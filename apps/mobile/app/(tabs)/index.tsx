@@ -1,15 +1,17 @@
 import { LogoutButton } from '@/components/LogoutButton';
+import { FeedbackModal } from '@/components/ui/FeedbackModal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { API_URL } from '@/constants/api';
 import { useAuth } from '@/context/auth';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const isWeb = Platform.OS === 'web';
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
   const [backendStatus, setBackendStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [isSendModalVisible, setIsSendModalVisible] = useState(false);
   const [receiverEmail, setReceiverEmail] = useState('');
@@ -17,6 +19,19 @@ export default function HomeScreen() {
   const [isSending, setIsSending] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+
+  // Feedback Modal State
+  const [feedback, setFeedback] = useState<{
+    visible: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
 
   const router = useRouter();
   const { user, signOut, updateUser, refreshUser } = useAuth();
@@ -27,6 +42,15 @@ export default function HomeScreen() {
       fetchHistory();
       refreshUser(); // Actualizar saldo al cargar
     }
+
+    // Intervalo para refrescar el historial automáticamente cada 15 segundos
+    const historyInterval = setInterval(() => {
+      if (user) {
+        fetchHistory();
+      }
+    }, 15000);
+
+    return () => clearInterval(historyInterval);
   }, [user?.id]);
 
   const checkBackend = async () => {
@@ -59,9 +83,32 @@ export default function HomeScreen() {
     }
   };
 
+  const handleAmountChange = (text: string) => {
+    // 1. Eliminar cualquier cosa que no sea número o punto
+    let cleaned = text.replace(/[^0-9.]/g, '');
+    
+    // 2. Asegurar que solo haya un punto decimal
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = parts[0] + '.' + parts.slice(1).join('');
+    }
+    
+    // 3. Limitar a máximo 2 decimales
+    if (parts.length > 1 && parts[1].length > 2) {
+      cleaned = parts[0] + '.' + parts[1].substring(0, 2);
+    }
+    
+    setAmount(cleaned);
+  };
+
   const handleSendMoney = async () => {
     if (!receiverEmail || !amount) {
-      Alert.alert('Error', 'Por favor llena todos los campos');
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Campos incompletos',
+        message: 'Por favor llena todos los campos antes de continuar.'
+      });
       return;
     }
 
@@ -81,11 +128,9 @@ export default function HomeScreen() {
       const data = await response.json();
 
       if (data.success) {
-        if (isWeb) {
-          alert('Transferencia exitosa');
-        } else {
-          Alert.alert('Éxito', 'Transferencia realizada');
-        }
+        setIsSendModalVisible(false);
+        setReceiverEmail('');
+        setAmount('');
         
         // Actualizar saldo localmente
         if (user) {
@@ -95,40 +140,59 @@ export default function HomeScreen() {
           });
         }
         
-        setIsSendModalVisible(false);
-        setReceiverEmail('');
-        setAmount('');
+        setFeedback({
+          visible: true,
+          type: 'success',
+          title: '¡Transferencia Exitosa!',
+          message: `Has enviado $${parseFloat(amount).toFixed(2)} correctamente.`
+        });
+        
         fetchHistory(); // Recargar historial
       } else {
-        if (isWeb) {
-          alert(data.message);
-        } else {
-          Alert.alert('Error', data.message);
-        }
+        setFeedback({
+          visible: true,
+          type: 'error',
+          title: 'Error en el envío',
+          message: data.message || 'No se pudo completar la transferencia.'
+        });
       }
     } catch (error) {
       console.error('Error sending money:', error);
-      Alert.alert('Error', 'No se pudo procesar la transferencia');
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Error de conexión',
+        message: 'Hubo un problema al conectar con el servidor.'
+      });
     } finally {
       setIsSending(false);
     }
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50 dark:bg-gray-900">
+    <View 
+      style={{ 
+        flex: 1, 
+        paddingTop: insets.top,
+        paddingBottom: insets.bottom,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+      }} 
+      className="bg-gray-50 dark:bg-gray-900"
+    >
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         <View className="flex-1 px-6 pb-10 max-w-[1200px] mx-auto w-full">
           
           {/* Header */}
           <View className="flex-row justify-between items-center py-8">
             <View>
-              <Text className="text-gray-500 text-lg dark:text-gray-400 font-medium">Panel de Control</Text>
+              <Text className="text-lg font-medium text-gray-500 dark:text-gray-400">Panel de Control</Text>
               <Text className="text-3xl font-bold text-gray-900 dark:text-white">Hola, {user?.name || 'Estudiante'}</Text>
             </View>
             <View className="flex-row items-center">
               <TouchableOpacity 
                 onPress={checkBackend}
-                className="flex-row items-center bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-sm border border-gray-100 dark:border-gray-700 mr-4"
+                className="flex-row items-center px-4 py-2 mr-4 bg-white rounded-full border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700"
               >
                 <View className={`h-2 w-2 rounded-full mr-2 ${
                   backendStatus === 'ok' ? 'bg-green-500' : 
@@ -150,20 +214,20 @@ export default function HomeScreen() {
             {/* Columna Izquierda: Saldo y Servicios */}
             <View className={isWeb ? 'flex-[2]' : 'w-full'}>
               
-              <View className={`${isWeb ? 'flex-row space-x-6 mb-10' : 'flex-col'}`}>
+              <View className={`${isWeb ? 'flex-row mb-10 space-x-6' : 'flex-col'}`}>
                 {/* Card de Saldo */}
                 <View className={`bg-blue-600 rounded-[40px] p-8 shadow-2xl shadow-blue-500/30 ${isWeb ? 'flex-1 mb-0' : 'mb-6'}`}>
-                  <Text className="text-blue-100 text-base mb-1 font-medium">Saldo disponible</Text>
-                  <Text className="text-5xl font-bold text-white mb-6">$ {user?.balance?.toFixed(2) || '0.00'}</Text>
+                  <Text className="mb-1 text-base font-medium text-blue-100">Saldo disponible</Text>
+                  <Text className="mb-6 text-5xl font-bold text-white">$ {user?.balance?.toFixed(2) || '0.00'}</Text>
                   <View className="flex-row space-x-3">
-                    <TouchableOpacity className="bg-white/20 h-12 rounded-xl flex-1 items-center justify-center">
-                      <Text className="text-white font-bold">Recargar</Text>
+                    <TouchableOpacity className="flex-1 justify-center items-center h-12 rounded-xl bg-white/20">
+                      <Text className="font-bold text-white">Recargar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity 
                       onPress={() => setIsSendModalVisible(true)}
-                      className="bg-white h-12 rounded-xl flex-1 items-center justify-center shadow-sm"
+                      className="flex-1 justify-center items-center h-12 bg-white rounded-xl shadow-sm"
                     >
-                      <Text className="text-blue-600 font-bold">Enviar</Text>
+                      <Text className="font-bold text-blue-600">Enviar</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -171,22 +235,22 @@ export default function HomeScreen() {
                 {/* Acciones de PC (Solo se ven en Web al lado del saldo) */}
                 {isWeb && (
                   <View className="flex-1 justify-between py-2">
-                    <TouchableOpacity className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 flex-row items-center">
-                      <View className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-2xl mr-4">
+                    <TouchableOpacity className="flex-row items-center p-6 bg-white rounded-3xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
+                      <View className="p-3 mr-4 bg-blue-50 rounded-2xl dark:bg-blue-900/20">
                         <IconSymbol name="chevron.left.forwardslash.chevron.right" size={24} color="#2563eb" />
                       </View>
                       <View>
                         <Text className="font-bold text-gray-800 dark:text-white">Ver Estadísticas</Text>
-                        <Text className="text-gray-500 text-xs">Analiza tus gastos del mes</Text>
+                        <Text className="text-xs text-gray-500">Analiza tus gastos del mes</Text>
                       </View>
                     </TouchableOpacity>
-                    <TouchableOpacity className="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 flex-row items-center">
-                      <View className="bg-amber-50 dark:bg-amber-900/20 p-3 rounded-2xl mr-4">
+                    <TouchableOpacity className="flex-row items-center p-6 bg-white rounded-3xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
+                      <View className="p-3 mr-4 bg-amber-50 rounded-2xl dark:bg-amber-900/20">
                         <IconSymbol name="payments" size={24} color="#d97706" />
                       </View>
                       <View>
                         <Text className="font-bold text-gray-800 dark:text-white">Beneficios UTP</Text>
-                        <Text className="text-gray-500 text-xs">Cupones y descuentos activos</Text>
+                        <Text className="text-xs text-gray-500">Cupones y descuentos activos</Text>
                       </View>
                     </TouchableOpacity>
                   </View>
@@ -194,7 +258,7 @@ export default function HomeScreen() {
               </View>
 
               {/* Grid de Servicios */}
-              <Text className="text-2xl font-bold text-gray-800 mb-6 dark:text-white">Servicios UTP</Text>
+              <Text className="mb-6 text-2xl font-bold text-gray-800 dark:text-white">Servicios UTP</Text>
               <View className="flex-row flex-wrap justify-between">
                 {[
                   { name: 'Escanear QR', icon: 'qr.code', color: 'bg-purple-100 dark:bg-purple-900/30', iconColor: '#a855f7' },
@@ -211,21 +275,21 @@ export default function HomeScreen() {
                     <View className={`${action.color} p-4 rounded-2xl mb-3`}>
                       <IconSymbol name={action.icon as any} size={32} color={action.iconColor} />
                     </View>
-                    <Text className="font-bold text-gray-700 dark:text-gray-200 text-base text-center">{action.name}</Text>
+                    <Text className="text-base font-bold text-center text-gray-700 dark:text-gray-200">{action.name}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
 
             {/* Columna Derecha: Actividad (Solo en PC) */}
-            <View className={isWeb ? 'flex-1' : 'w-full mt-10'}>
+            <View className={isWeb ? 'flex-1' : 'mt-10 w-full'}>
               <View className="bg-white dark:bg-gray-800 rounded-[40px] p-8 shadow-sm border border-gray-50 dark:border-gray-700">
-                <Text className="text-xl font-bold text-gray-800 dark:text-white mb-6">Actividad Reciente</Text>
+                <Text className="mb-6 text-xl font-bold text-gray-800 dark:text-white">Actividad Reciente</Text>
                 
                 {isLoadingHistory ? (
                   <ActivityIndicator color="#2563eb" />
                 ) : history.length === 0 ? (
-                  <Text className="text-gray-500 text-center py-4">No hay transacciones aún</Text>
+                  <Text className="py-4 text-center text-gray-500">No hay transacciones aún</Text>
                 ) : (
                   history.map((item, i) => {
                     const isExpense = item.senderId === user?.id;
@@ -259,9 +323,9 @@ export default function HomeScreen() {
                 
                 <TouchableOpacity 
                   onPress={() => router.push('/explore')}
-                  className="mt-4 py-4 border-t border-gray-50 dark:border-gray-700 items-center"
+                  className="items-center py-4 mt-4 border-t border-gray-50 dark:border-gray-700"
                 >
-                  <Text className="text-blue-600 font-bold">Ver todo el historial</Text>
+                  <Text className="font-bold text-blue-600">Ver todo el historial</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -276,13 +340,13 @@ export default function HomeScreen() {
           visible={isSendModalVisible}
           onRequestClose={() => setIsSendModalVisible(false)}
         >
-          <View className="flex-1 justify-center items-center bg-black/50 px-6">
+          <View className="flex-1 justify-center items-center px-6 bg-black/50">
             <View className="bg-white dark:bg-gray-800 w-full max-w-md p-8 rounded-[40px] shadow-xl">
-              <Text className="text-2xl font-bold text-gray-900 dark:text-white mb-6 text-center">Enviar UTP Coins</Text>
+              <Text className="mb-6 text-2xl font-bold text-center text-gray-900 dark:text-white">Enviar UTP Coins</Text>
               
-              <Text className="text-gray-500 mb-2 ml-2">Correo del receptor</Text>
+              <Text className="mb-2 ml-2 text-gray-500">Correo del receptor</Text>
               <TextInput
-                className="bg-gray-50 dark:bg-gray-700 p-4 rounded-2xl mb-4 dark:text-white"
+                className="p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
                 placeholder="ejemplo@utp.ac.pa"
                 placeholderTextColor="#9ca3af"
                 value={receiverEmail}
@@ -291,33 +355,33 @@ export default function HomeScreen() {
                 keyboardType="email-address"
               />
 
-              <Text className="text-gray-500 mb-2 ml-2">Monto (UTP)</Text>
+              <Text className="mb-2 ml-2 text-gray-500">Monto (UTP)</Text>
               <TextInput
-                className="bg-gray-50 dark:bg-gray-700 p-4 rounded-2xl mb-8 dark:text-white text-2xl font-bold"
+                className="p-4 mb-8 text-2xl font-bold bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
                 placeholder="0.00"
                 placeholderTextColor="#9ca3af"
                 value={amount}
-                onChangeText={setAmount}
+                onChangeText={handleAmountChange}
                 keyboardType="numeric"
               />
 
               <View className="flex-row space-x-4">
                 <TouchableOpacity 
                   onPress={() => setIsSendModalVisible(false)}
-                  className="flex-1 bg-gray-100 dark:bg-gray-700 h-14 rounded-2xl items-center justify-center"
+                  className="flex-1 justify-center items-center h-14 bg-gray-100 rounded-2xl dark:bg-gray-700"
                 >
-                  <Text className="text-gray-600 dark:text-gray-300 font-bold">Cancelar</Text>
+                  <Text className="font-bold text-gray-600 dark:text-gray-300">Cancelar</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
                   onPress={handleSendMoney}
                   disabled={isSending}
-                  className="flex-1 bg-blue-600 h-14 rounded-2xl items-center justify-center shadow-lg shadow-blue-500/30"
+                  className="flex-1 justify-center items-center h-14 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30"
                 >
                   {isSending ? (
                     <ActivityIndicator color="white" />
                   ) : (
-                    <Text className="text-white font-bold text-lg">Enviar Ahora</Text>
+                    <Text className="text-lg font-bold text-white">Enviar Ahora</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -325,7 +389,15 @@ export default function HomeScreen() {
           </View>
         </Modal>
 
+        <FeedbackModal
+          isVisible={feedback.visible}
+          type={feedback.type}
+          title={feedback.title}
+          message={feedback.message}
+          onClose={() => setFeedback({ ...feedback, visible: false })}
+        />
+
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
