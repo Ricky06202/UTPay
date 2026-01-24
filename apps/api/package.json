@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.1",
