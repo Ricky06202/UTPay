@@ -130,24 +130,27 @@ app.post('/transactions/send', async (c) => {
       return c.json({ success: false, message: 'Saldo insuficiente' }, 400)
     }
 
-    // 2. Ejecutar transacción
-    // Restar al emisor
-    await db.update(users)
-      .set({ balance: (sender.balance || 0) - amount })
-      .where(eq(users.id, senderId))
+    // 2. Ejecutar transacción ATÓMICA
+    // Usamos db.batch para asegurar que o se hacen todas, o no se hace ninguna
+    await db.batch([
+      // Restar al emisor
+      db.update(users)
+        .set({ balance: (sender.balance || 0) - amount })
+        .where(eq(users.id, senderId)),
 
-    // Sumar al receptor
-    await db.update(users)
-      .set({ balance: (receiver.balance || 0) + amount })
-      .where(eq(users.id, receiver.id))
+      // Sumar al receptor
+      db.update(users)
+        .set({ balance: (receiver.balance || 0) + amount })
+        .where(eq(users.id, receiver.id)),
 
-    // Registrar transacción
-    await db.insert(transactions).values({
-      senderId,
-      receiverId: receiver.id,
-      amount,
-      description: description || `Transferencia UTPay`
-    })
+      // Registrar transacción
+      db.insert(transactions).values({
+        senderId,
+        receiverId: receiver.id,
+        amount,
+        description: description || `Transferencia UTPay`
+      })
+    ])
 
     return c.json({ success: true, message: 'Transferencia realizada con éxito' })
   } catch (e: any) {
