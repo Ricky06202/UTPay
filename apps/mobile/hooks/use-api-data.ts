@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API_URL = 'http://localhost:3000'; // En desarrollo con simulador iOS/Android podrías necesitar tu IP local
+import { API_URL } from '@/constants/api';
 
 export function useApiData() {
   const [data, setData] = useState<any>(null);

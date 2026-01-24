@@ -1,112 +1,111 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+import { API_URL } from '@/constants/api';
+import { useAuth } from '@/context/auth';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-export default function TabTwoScreen() {
+const isWeb = Platform.OS === 'web';
+
+export default function ExploreScreen() {
+  const router = useRouter();
+  const { user } = useAuth();
+  const [history, setHistory] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      fetchFullHistory();
+    }
+  }, [user?.id]);
+
+  const fetchFullHistory = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`${API_URL}/transactions/history/${user?.id}`);
+      const data = await response.json();
+      if (data.success) {
+        setHistory(data.history);
+      }
+    } catch (error) {
+      console.error('Error fetching full history:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <SafeAreaView className="flex-1 bg-gray-50 dark:bg-gray-900">
+      <View className={`flex-1 px-6 pt-6 ${isWeb ? 'max-w-[1200px] mx-auto w-full' : ''}`}>
+        <View className="flex-row justify-between items-center mb-8">
+          <Text className="text-3xl font-bold text-gray-900 dark:text-white">Historial</Text>
+          <View className="flex-row">
+            <TouchableOpacity 
+              onPress={fetchFullHistory}
+              className="bg-white dark:bg-gray-800 p-3 rounded-full shadow-sm border border-gray-100 dark:border-gray-700 mr-2"
+            >
+              <IconSymbol name="refresh" size={24} color="#2563eb" />
+            </TouchableOpacity>
+            {isWeb && (
+              <TouchableOpacity 
+                onPress={() => router.push('/')}
+                className="bg-white dark:bg-gray-800 px-6 py-3 rounded-full shadow-sm border border-gray-100 dark:border-gray-700"
+              >
+                <Text className="font-bold text-blue-600">Volver al Panel</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        
+        {isLoading ? (
+          <View className="flex-1 justify-center items-center">
+            <ActivityIndicator size="large" color="#2563eb" />
+          </View>
+        ) : history.length === 0 ? (
+          <View className="flex-1 justify-center items-center">
+            <Text className="text-gray-500 text-lg">Aún no tienes transacciones</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={history}
+            keyExtractor={(item) => item.id.toString()}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            renderItem={({ item }) => {
+              const isExpense = item.senderId === user?.id;
+              const displayName = isExpense ? `A: ${item.receiverName}` : `De: ${item.senderName}`;
+              
+              return (
+                <View className="bg-white dark:bg-gray-800 p-6 rounded-[32px] mb-4 flex-row justify-between items-center shadow-sm border border-gray-50 dark:border-gray-700">
+                  <View className="flex-row items-center">
+                    <View className={`h-14 w-14 rounded-2xl items-center justify-center mr-4 ${
+                      !isExpense ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'
+                    }`}>
+                      <IconSymbol 
+                        name={!isExpense ? 'add' : 'remove'} 
+                        size={28} 
+                        color={!isExpense ? '#22c55e' : '#ef4444'} 
+                      />
+                    </View>
+                    <View>
+                      <Text className="font-bold text-gray-800 dark:text-gray-100 text-lg">
+                        {item.description === 'Transferencia UTPay' ? displayName : item.description}
+                      </Text>
+                      <Text className="text-gray-500 dark:text-gray-400 text-sm">
+                        {new Date(item.createdAt).toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text className={`font-bold text-2xl ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
+                    {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
+                  </Text>
+                </View>
+              );
+            }}
+          />
+        )}
+      </View>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-});
