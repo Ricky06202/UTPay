@@ -3,18 +3,42 @@ import { FeedbackModal } from '@/components/ui/FeedbackModal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { API_URL } from '@/constants/api';
 import { useAuth } from '@/context/auth';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const isWeb = Platform.OS === 'web';
 
+// Función para decorar el ID: 1 -> UTP-0001
+const formatUTPId = (id: number | string | undefined) => {
+  if (!id) return 'UTP-0000';
+  const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
+  if (isNaN(numericId)) return 'UTP-0000';
+  return `UTP-${numericId.toString().padStart(4, '0')}`;
+};
+
+// Función para revertir la decoración: acepta "UTP-0001", "0001" o "1"
+const parseUTPId = (id: string) => {
+  // Eliminar el prefijo UTP- si existe
+  const cleanId = id.replace('UTP-', '');
+  const numericId = parseInt(cleanId, 10);
+  return isNaN(numericId) ? null : numericId;
+};
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const [permission, requestPermission] = useCameraPermissions();
   const [backendStatus, setBackendStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [isSendModalVisible, setIsSendModalVisible] = useState(false);
-  const [receiverEmail, setReceiverEmail] = useState('');
+  const [isQRModalVisible, setIsQRModalVisible] = useState(false);
+  const [isScannerVisible, setIsScannerVisible] = useState(false);
+  const [verificationStep, setVerificationStep] = useState<'input' | 'confirm'>('input');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [recipientData, setRecipientData] = useState<{ name: string; email: string } | null>(null);
+  const [receiverUTPId, setReceiverUTPId] = useState('');
   const [amount, setAmount] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
@@ -101,16 +125,109 @@ export default function HomeScreen() {
     setAmount(cleaned);
   };
 
-  const handleSendMoney = async () => {
-    if (!receiverEmail || !amount) {
+  const onBarcodeScanned = ({ data }: { data: string }) => {
+    setIsScannerVisible(false);
+    // Verificar si el código escaneado es un ID de UTPay válido
+    if (data.startsWith('UTP-')) {
+      const numericId = data.replace('UTP-', '');
+      setReceiverUTPId(numericId);
+      // Solo abrimos el modal para que el usuario ingrese el monto
+      setIsSendModalVisible(true);
+      setVerificationStep('input');
+    } else {
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'QR Inválido',
+        message: 'El código QR escaneado no es un identificador válido de UTPay.'
+      });
+    }
+  };
+
+  const handleVerifyRecipient = async (idToVerify?: string) => {
+    const targetId = idToVerify || receiverUTPId;
+    const numericId = parseUTPId(targetId);
+
+    if (!numericId || !amount) {
       setFeedback({
         visible: true,
         type: 'error',
         title: 'Campos incompletos',
-        message: 'Por favor llena todos los campos antes de continuar.'
+        message: 'Por favor ingresa un Número UTPay válido y un monto.'
       });
       return;
     }
+
+    if (numericId === user?.id) {
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: 'No puedes enviarte dinero a ti mismo.'
+      });
+      return;
+    }
+
+    try {
+      setIsVerifying(true);
+      const response = await fetch(`${API_URL}/auth/me/${numericId}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setRecipientData(data.user);
+        setVerificationStep('confirm');
+        setIsSendModalVisible(true);
+      } else {
+        setFeedback({
+          visible: true,
+          type: 'error',
+          title: 'Usuario no encontrado',
+          message: 'No existe ningún usuario con ese Número UTPay.'
+        });
+      }
+    } catch (error) {
+      console.error('Error verifying recipient:', error);
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Error de conexión',
+        message: 'No se pudo verificar el usuario.'
+      });
+    } finally {
+       setIsVerifying(false);
+     }
+   };
+
+   const handleOpenScanner = async () => {
+     if (isWeb) {
+       setFeedback({
+         visible: true,
+         type: 'info',
+         title: 'No disponible en Web',
+         message: 'La cámara solo está disponible en la aplicación móvil.'
+       });
+       return;
+     }
+
+     if (!permission?.granted) {
+       const { granted } = await requestPermission();
+       if (!granted) {
+         setFeedback({
+           visible: true,
+           type: 'error',
+           title: 'Permiso denegado',
+           message: 'Necesitamos acceso a la cámara para escanear códigos QR.'
+         });
+         return;
+       }
+     }
+     setIsScannerVisible(true);
+   };
+
+   const handleSendMoney = async () => {
+    const numericReceiverId = parseUTPId(receiverUTPId);
+    
+    if (!numericReceiverId || !amount) return;
 
     try {
       setIsSending(true);
@@ -119,7 +236,7 @@ export default function HomeScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           senderId: user?.id,
-          receiverEmail,
+          receiverId: numericReceiverId,
           amount: parseFloat(amount),
           description: 'Transferencia UTPay'
         })
@@ -129,7 +246,9 @@ export default function HomeScreen() {
 
       if (data.success) {
         setIsSendModalVisible(false);
-        setReceiverEmail('');
+        setVerificationStep('input');
+        setRecipientData(null);
+        setReceiverUTPId('');
         setAmount('');
         
         // Actualizar saldo localmente
@@ -167,6 +286,16 @@ export default function HomeScreen() {
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleCloseSendModal = () => {
+    setIsSendModalVisible(false);
+    setTimeout(() => {
+      setVerificationStep('input');
+      setRecipientData(null);
+      setReceiverUTPId('');
+      setAmount('');
+    }, 300);
   };
 
   return (
@@ -261,15 +390,16 @@ export default function HomeScreen() {
               <Text className="mb-6 text-2xl font-bold text-gray-800 dark:text-white">Servicios UTP</Text>
               <View className="flex-row flex-wrap justify-between">
                 {[
-                  { name: 'Escanear QR', icon: 'qr.code', color: 'bg-purple-100 dark:bg-purple-900/30', iconColor: '#a855f7' },
-                  { name: 'Pagar', icon: 'payments', color: 'bg-green-100 dark:bg-green-900/30', iconColor: '#22c55e' },
+                  { name: 'Escanear QR', icon: 'qr.code', color: 'bg-purple-100 dark:bg-purple-900/30', iconColor: '#a855f7', action: handleOpenScanner },
+                  { name: 'Tareas', icon: 'assignment', color: 'bg-green-100 dark:bg-green-900/30', iconColor: '#22c55e', action: () => router.push('/missions') },
                   { name: 'Transporte', icon: 'bus', color: 'bg-orange-100 dark:bg-orange-900/30', iconColor: '#f97316' },
                   { name: 'Cafetería', icon: 'coffee', color: 'bg-blue-100 dark:bg-blue-900/30', iconColor: '#3b82f6' },
                   { name: 'Biblioteca', icon: 'book', color: 'bg-red-100 dark:bg-red-900/30', iconColor: '#ef4444' },
-                  { name: 'Perfil', icon: 'account.circle', color: 'bg-gray-100 dark:bg-gray-800', iconColor: '#6b7280' }
+                  { name: 'Mi QR', icon: 'account.circle', color: 'bg-gray-100 dark:bg-gray-800', iconColor: '#6b7280', action: () => setIsQRModalVisible(true) }
                 ].map((action, index) => (
                   <TouchableOpacity 
                     key={index} 
+                    onPress={action.action}
                     className={`${isWeb ? 'w-[23%]' : 'w-[48%]'} bg-white dark:bg-gray-800 p-6 rounded-[32px] mb-6 shadow-sm items-center justify-center h-40 border border-gray-50 dark:border-gray-700`}
                   >
                     <View className={`${action.color} p-4 rounded-2xl mb-3`}>
@@ -333,59 +463,191 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Modal para Enviar Dinero */}
+        {/* Modal para Enviar Dinero (Con Verificación Estilo Yappy) */}
         <Modal
           animationType="slide"
           transparent={true}
           visible={isSendModalVisible}
-          onRequestClose={() => setIsSendModalVisible(false)}
+          onRequestClose={handleCloseSendModal}
+        >
+          <View className="flex-1 justify-end items-center px-0 bg-black/50">
+            <View className="bg-white dark:bg-gray-800 w-full max-w-md p-8 rounded-t-[50px] shadow-2xl">
+              
+              {verificationStep === 'input' ? (
+                <>
+                  <Text className="mb-6 text-2xl font-bold text-center text-gray-900 dark:text-white">Enviar UTP Coins</Text>
+                  
+                  <Text className="mb-2 ml-2 text-gray-500">Número UTPay del receptor</Text>
+                  <View className="flex-row items-center p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700">
+                    <Text className="text-gray-400 font-bold text-lg mr-1">UTP-</Text>
+                    <TextInput
+                      className="flex-1 text-lg font-bold dark:text-white"
+                      placeholder="0000"
+                      placeholderTextColor="#9ca3af"
+                      value={receiverUTPId}
+                      onChangeText={(text) => {
+                        // Solo permitir números y limitar longitud a 4 dígitos
+                        const numericText = text.replace(/[^0-9]/g, '').slice(0, 4);
+                        setReceiverUTPId(numericText);
+                      }}
+                      keyboardType="numeric"
+                    />
+                  </View>
+
+                  <Text className="mb-2 ml-2 text-gray-500">Monto (UTP)</Text>
+                  <TextInput
+                    className="p-4 mb-8 text-2xl font-bold bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
+                    placeholder="0.00"
+                    placeholderTextColor="#9ca3af"
+                    value={amount}
+                    onChangeText={handleAmountChange}
+                    keyboardType="numeric"
+                  />
+
+                  <View className="flex-row space-x-4">
+                    <TouchableOpacity 
+                      onPress={handleCloseSendModal}
+                      className="flex-1 justify-center items-center h-14 bg-gray-100 rounded-2xl dark:bg-gray-700"
+                    >
+                      <Text className="font-bold text-gray-600 dark:text-gray-300">Cancelar</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      onPress={() => handleVerifyRecipient()}
+                      disabled={isVerifying}
+                      className="flex-2 justify-center items-center h-14 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30"
+                    >
+                      {isVerifying ? (
+                        <ActivityIndicator color="white" />
+                      ) : (
+                        <Text className="text-lg font-bold text-white px-8">Verificar Receptor</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View className="items-center mb-6">
+                    <View className="p-4 mb-4 bg-blue-50 rounded-full dark:bg-blue-900/20">
+                      <IconSymbol name="paperplane.fill" size={32} color="#2563eb" />
+                    </View>
+                    <Text className="text-2xl font-bold text-gray-900 dark:text-white text-center">Confirmar Envío</Text>
+                  </View>
+
+                  <View className="bg-gray-50 dark:bg-gray-700 p-6 rounded-3xl mb-8">
+                    <View className="flex-row justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-4">
+                      <Text className="text-gray-500 dark:text-gray-400">Enviar a:</Text>
+                      <View className="items-end">
+                        <Text className="font-bold text-gray-900 dark:text-white text-lg">{recipientData?.name}</Text>
+                        <Text className="text-gray-500 dark:text-gray-400 text-xs mb-1">{recipientData?.email}</Text>
+                        <Text className="text-blue-600 font-bold tracking-widest">{formatUTPId(receiverUTPId)}</Text>
+                      </View>
+                    </View>
+                    
+                    <View className="flex-row justify-between items-center">
+                      <Text className="text-gray-500 dark:text-gray-400">Monto total:</Text>
+                      <Text className="text-3xl font-black text-gray-900 dark:text-white">$ {parseFloat(amount).toFixed(2)}</Text>
+                    </View>
+                  </View>
+
+                  <View className="flex-row space-x-4">
+                    <TouchableOpacity 
+                      onPress={() => setVerificationStep('input')}
+                      className="flex-1 justify-center items-center h-14 bg-gray-100 rounded-2xl dark:bg-gray-700"
+                    >
+                      <Text className="font-bold text-gray-600 dark:text-gray-300">Atrás</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      onPress={handleSendMoney}
+                      disabled={isSending}
+                      className="flex-2 justify-center items-center h-14 bg-green-600 rounded-2xl shadow-lg shadow-green-500/30"
+                    >
+                      {isSending ? (
+                        <ActivityIndicator color="white" />
+                      ) : (
+                        <Text className="text-lg font-bold text-white px-8">Confirmar y Enviar</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Modal para mostrar mi QR */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={isQRModalVisible}
+          onRequestClose={() => setIsQRModalVisible(false)}
         >
           <View className="flex-1 justify-center items-center px-6 bg-black/50">
-            <View className="bg-white dark:bg-gray-800 w-full max-w-md p-8 rounded-[40px] shadow-xl">
-              <Text className="mb-6 text-2xl font-bold text-center text-gray-900 dark:text-white">Enviar UTP Coins</Text>
-              
-              <Text className="mb-2 ml-2 text-gray-500">Correo del receptor</Text>
-              <TextInput
-                className="p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
-                placeholder="ejemplo@utp.ac.pa"
-                placeholderTextColor="#9ca3af"
-                value={receiverEmail}
-                onChangeText={setReceiverEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-              />
-
-              <Text className="mb-2 ml-2 text-gray-500">Monto (UTP)</Text>
-              <TextInput
-                className="p-4 mb-8 text-2xl font-bold bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
-                placeholder="0.00"
-                placeholderTextColor="#9ca3af"
-                value={amount}
-                onChangeText={handleAmountChange}
-                keyboardType="numeric"
-              />
-
-              <View className="flex-row space-x-4">
-                <TouchableOpacity 
-                  onPress={() => setIsSendModalVisible(false)}
-                  className="flex-1 justify-center items-center h-14 bg-gray-100 rounded-2xl dark:bg-gray-700"
-                >
-                  <Text className="font-bold text-gray-600 dark:text-gray-300">Cancelar</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  onPress={handleSendMoney}
-                  disabled={isSending}
-                  className="flex-1 justify-center items-center h-14 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30"
-                >
-                  {isSending ? (
-                    <ActivityIndicator color="white" />
-                  ) : (
-                    <Text className="text-lg font-bold text-white">Enviar Ahora</Text>
-                  )}
-                </TouchableOpacity>
+            <View className="bg-white dark:bg-gray-800 w-full max-w-sm p-10 rounded-[50px] items-center shadow-2xl">
+              <View className="mb-6 p-4 bg-blue-50 rounded-3xl dark:bg-blue-900/20">
+                <IconSymbol name="qr.code" size={32} color="#2563eb" />
               </View>
+              
+              <Text className="mb-2 text-2xl font-bold text-gray-900 dark:text-white">Mi Código QR</Text>
+              <Text className="mb-8 text-gray-500 text-center">Muestra este código para recibir transferencias</Text>
+              
+              <View className="p-6 bg-white rounded-[40px] shadow-sm border border-gray-100">
+                <QRCode
+                  value={formatUTPId(user?.id)}
+                  size={200}
+                  color="#1f2937"
+                  backgroundColor="white"
+                />
+              </View>
+              
+              <View className="mt-8 bg-gray-50 px-6 py-3 rounded-full dark:bg-gray-700">
+                <Text className="text-xl font-black text-blue-600 dark:text-blue-400 tracking-widest">
+                  {formatUTPId(user?.id)}
+                </Text>
+              </View>
+              
+              <TouchableOpacity 
+                onPress={() => setIsQRModalVisible(false)}
+                className="mt-10 w-full h-14 bg-gray-900 rounded-2xl items-center justify-center dark:bg-gray-700"
+              >
+                <Text className="text-white font-bold text-lg">Cerrar</Text>
+              </TouchableOpacity>
             </View>
+          </View>
+        </Modal>
+
+        {/* Modal para el Escáner QR */}
+        <Modal
+          animationType="slide"
+          visible={isScannerVisible}
+          onRequestClose={() => setIsScannerVisible(false)}
+        >
+          <View className="flex-1 bg-black">
+            <CameraView
+              style={StyleSheet.absoluteFillObject}
+              onBarcodeScanned={onBarcodeScanned}
+              barcodeScannerSettings={{
+                barcodeTypes: ['qr'],
+              }}
+            />
+            
+            {/* Overlay del escáner */}
+            <View className="flex-1 items-center justify-center">
+              <View className="w-64 h-64 border-2 border-white/50 rounded-3xl" />
+              <Text className="mt-10 text-white font-bold text-lg bg-black/50 px-6 py-2 rounded-full">
+                Escanea el código QR UTPay
+              </Text>
+            </View>
+            
+            {/* Botón para cerrar escáner */}
+            <TouchableOpacity 
+              onPress={() => setIsScannerVisible(false)}
+              style={{ position: 'absolute', top: insets.top + 20, right: 20 }}
+              className="bg-white/20 p-4 rounded-full"
+            >
+              <IconSymbol name="close" size={24} color="white" />
+            </TouchableOpacity>
           </View>
         </Modal>
 

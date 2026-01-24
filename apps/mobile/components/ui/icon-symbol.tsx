@@ -25,6 +25,8 @@ const MAPPING = {
   'checkmark.circle.fill': 'check-circle',
   'exclamationmark.circle.fill': 'error',
   'info.circle.fill': 'info',
+  'close': 'close',
+  'assignment': 'assignment',
 } as const;
 
 export type IconSymbolName = keyof typeof MAPPING;
