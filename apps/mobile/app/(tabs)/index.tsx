@@ -5,9 +5,12 @@ import { HelloWave } from '@/components/hello-wave';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useApiData } from '@/hooks/use-api-data';
 import { Link } from 'expo-router';
 
 export default function HomeScreen() {
+  const { data, loading, error } = useApiData();
+
   return (
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
@@ -21,6 +24,18 @@ export default function HomeScreen() {
         <ThemedText type="title">Welcome!</ThemedText>
         <HelloWave />
       </ThemedView>
+
+      <ThemedView style={styles.stepContainer}>
+        <ThemedText type="subtitle">Hono API Status:</ThemedText>
+        {loading && <ThemedText>Cargando datos de la API...</ThemedText>}
+        {error && <ThemedText style={{ color: 'red' }}>Error: {error}</ThemedText>}
+        {data && (
+          <ThemedText type="defaultSemiBold">
+            Conectado a: {data.name} (v{data.version})
+          </ThemedText>
+        )}
+      </ThemedView>
+
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Step 1: Try it</ThemedText>
         <ThemedText>

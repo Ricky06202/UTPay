@@ -1,0 +1,12 @@
+{
+  "name": "utpay-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-23",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "utpay",
+      "database_id": "fc47d08a-3450-4bd0-b42f-109e9e4384ef"
+    }
+  ]
+}
