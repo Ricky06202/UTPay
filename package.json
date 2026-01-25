@@ -9,6 +9,9 @@
     "mobile": "cd apps/mobile && bun start",
     "api": "cd apps/api && bun dev",
     "install:all": "bun install",
+    "build:android": "cd apps/mobile && eas build -p android --profile preview",
+    "build:ios": "cd apps/mobile && eas build -p ios --profile preview",
+    "build:all": "bun run build:android && bun run build:ios",
     "deploy:all": "bun run deploy:mobile && bun run deploy:api",
     "deploy:mobile": "cd apps/mobile && bun run export && bun run deploy",
     "deploy:api": "cd apps/api && bun run db:push && bun run deploy"
