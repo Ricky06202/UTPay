@@ -224,7 +224,7 @@ app.get('/missions/categories', async (c) => {
   }
 })
 
-// 1. Crear una misión (con Escrow)
+// 1. Crear una tarea (con Escrow)
 app.post('/missions/create', async (c) => {
   try {
     const { creatorId, title, description, categoryId, reward, whatsapp } = await c.req.json()
@@ -236,10 +236,10 @@ app.post('/missions/create', async (c) => {
     // Verificar saldo del creador
     const creator = await db.select().from(users).where(eq(users.id, creatorId)).get()
     if (!creator || creator.balance < finalReward) {
-      return c.json({ success: false, message: 'Saldo insuficiente para crear esta misión' }, 400)
+      return c.json({ success: false, message: 'Saldo insuficiente para crear esta tarea' }, 400)
     }
 
-    // Restar saldo (Escrow) y crear misión en batch
+    // Restar saldo (Escrow) y crear tarea en batch
     await db.batch([
       db.update(users).set({ balance: (creator.balance || 0) - finalReward }).where(eq(users.id, creatorId)),
       db.insert(missions).values({
@@ -253,7 +253,7 @@ app.post('/missions/create', async (c) => {
       })
     ])
 
-    return c.json({ success: true, message: 'Misión creada correctamente' })
+    return c.json({ success: true, message: 'Tarea creada correctamente' })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
@@ -277,9 +277,13 @@ app.get('/missions/open', async (c) => {
       creatorId: missions.creatorId,
       creatorName: users.name,
       createdAt: missions.createdAt,
-      // Información de postulación del usuario actual si se proporciona userId
-      hasApplied: userId ? sql`EXISTS(SELECT 1 FROM missionApplications WHERE mission_id = ${missions.id} AND student_id = ${userId})` : sql`0`,
-      myBid: userId ? sql`(SELECT bid_amount FROM missionApplications WHERE mission_id = ${missions.id} AND student_id = ${userId} LIMIT 1)` : sql`NULL`
+      // Información de postulación del usuario actual
+      hasApplied: userId 
+        ? sql<number>`(SELECT COUNT(*) FROM ${missionApplications} WHERE mission_id = ${missions.id} AND student_id = ${userId})`
+        : sql<number>`0`,
+      myBid: userId 
+        ? sql<number>`(SELECT bid_amount FROM ${missionApplications} WHERE mission_id = ${missions.id} AND student_id = ${userId} LIMIT 1)`
+        : sql`NULL`
     })
     .from(missions)
     .leftJoin(users, eq(missions.creatorId, users.id))
@@ -305,10 +309,10 @@ app.get('/missions/my-applications/:userId', async (c) => {
       missionId: missions.id,
       title: missions.title,
       description: missions.description,
-      reward: missions.reward, // Recompensa original/actual de la misión
-      myBid: missionApplications.bidAmount, // Lo que el usuario ofertó
-      status: missionApplications.status, // Estado de su postulación
-      missionStatus: missions.status, // Estado de la misión
+      reward: missions.reward,
+      myBid: missionApplications.bidAmount,
+      status: missionApplications.status,
+      missionStatus: missions.status,
       creatorName: users.name,
       createdAt: missionApplications.createdAt
     })
@@ -359,14 +363,14 @@ app.get('/missions/user/:userId', async (c) => {
   }
 })
 
-// 2.1. Listar postulantes de una misión (solo para el creador)
+// 2.1. Listar postulantes de una tarea (solo para el creador)
 app.get('/missions/applications/:missionId', async (c) => {
   try {
     const missionIdStr = c.req.param('missionId')
     const missionId = parseInt(missionIdStr)
     
     if (isNaN(missionId)) {
-      return c.json({ success: false, error: 'ID de misión inválido' }, 400)
+      return c.json({ success: false, error: 'ID de tarea inválido' }, 400)
     }
 
     console.log('Fetching applications for mission:', missionId)
@@ -395,7 +399,7 @@ app.get('/missions/applications/:missionId', async (c) => {
   }
 })
 
-// 3. Postularse a una misión
+// 3. Postularse a una tarea
 app.post('/missions/apply', async (c) => {
   try {
     const { missionId, studentId, comment, bidAmount } = await c.req.json()
@@ -443,7 +447,7 @@ app.post('/missions/apply', async (c) => {
   }
 })
 
-// 4. Aceptar a un estudiante para la misión
+// 4. Aceptar a un estudiante para la tarea
 app.post('/missions/accept', async (c) => {
   try {
     const { applicationId } = await c.req.json()
@@ -453,10 +457,10 @@ app.post('/missions/accept', async (c) => {
     if (!application) return c.json({ success: false, message: 'Postulación no encontrada' }, 404)
 
     const mission = await db.select().from(missions).where(eq(missions.id, application.missionId)).get()
-    if (!mission) return c.json({ success: false, message: 'Misión no encontrada' }, 404)
+    if (!mission) return c.json({ success: false, message: 'Tarea no encontrada' }, 404)
 
     if (mission.status !== 'open') {
-      return c.json({ success: false, message: 'La misión ya no está abierta para nuevas asignaciones' }, 400)
+      return c.json({ success: false, message: 'La tarea ya no está abierta para nuevas asignaciones' }, 400)
     }
 
     const creator = await db.select().from(users).where(eq(users.id, mission.creatorId)).get()
@@ -478,7 +482,7 @@ app.post('/missions/accept', async (c) => {
           eq(missionApplications.missionId, mission.id),
           sql`${missionApplications.id} != ${applicationId}`
         )),
-      // Actualizar misión con el nuevo precio y estado
+      // Actualizar tarea con el nuevo precio y estado
       db.update(missions).set({ 
         reward: application.bidAmount,
         status: 'assigned' 
@@ -528,22 +532,13 @@ app.post('/missions/cancel', async (c) => {
       return c.json({ success: false, message: 'No tienes permiso para cancelar esta tarea' }, 403);
     }
 
-    if (mission.status === 'completed') {
-      return c.json({ success: false, message: 'No se pueden eliminar tareas que ya han sido completadas y pagadas' }, 400);
-    }
-
-    const creator = await db.select().from(users).where(eq(users.id, uId)).get();
-    if (!creator) {
-      return c.json({ success: false, message: 'Usuario creador no encontrado' }, 404);
-    }
-
+    // Permitir eliminar cualquier tarea del dueño, pero solo reembolsar si está abierta/asignada
     const operations: any[] = [
       db.delete(missionApplications).where(eq(missionApplications.missionId, mId)),
       db.delete(missions).where(eq(missions.id, mId))
     ];
 
     // Solo reembolsar si la tarea estaba abierta o asignada (dinero en escrow)
-    // Si estaba 'cancelled', el dinero ya se debería haber reembolsado
     const shouldRefund = mission.status === 'open' || mission.status === 'assigned';
     
     if (shouldRefund) {
@@ -558,7 +553,7 @@ app.post('/missions/cancel', async (c) => {
 
     return c.json({ 
       success: true, 
-      message: shouldRefund ? 'Tarea eliminada y saldo reembolsado' : 'Tarea eliminada correctamente' 
+      message: shouldRefund ? 'Tarea eliminada y saldo reembolsado' : 'Tarea eliminada del historial' 
     });
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500);
@@ -624,7 +619,7 @@ app.post('/missions/update', async (c) => {
   }
 })
 
-// 7. Finalizar misión y liberar pago
+// 7. Finalizar tarea y liberar pago
 app.post('/missions/complete', async (c) => {
   try {
     const { applicationId } = await c.req.json()
@@ -638,7 +633,7 @@ app.post('/missions/complete', async (c) => {
     if (!application) return c.json({ success: false, message: 'Postulación aceptada no encontrada' }, 404)
 
     const mission = await db.select().from(missions).where(eq(missions.id, application.missionId)).get()
-    if (!mission) return c.json({ success: false, message: 'Misión no encontrada' }, 404)
+    if (!mission) return c.json({ success: false, message: 'Tarea no encontrada' }, 404)
 
     const student = await db.select().from(users).where(eq(users.id, application.studentId)).get()
     if (!student) return c.json({ success: false, message: 'Estudiante no encontrado' }, 404)
@@ -646,7 +641,7 @@ app.post('/missions/complete', async (c) => {
     await db.batch([
       // Marcar postulación como completada
       db.update(missionApplications).set({ status: 'completed' }).where(eq(missionApplications.id, applicationId)),
-      // Marcar misión como completada
+      // Marcar tarea como completada
       db.update(missions).set({ status: 'completed' }).where(eq(missions.id, mission.id)),
       // Liberar pago al estudiante
       db.update(users).set({ balance: (student.balance || 0) + mission.reward }).where(eq(users.id, student.id)),
@@ -655,7 +650,7 @@ app.post('/missions/complete', async (c) => {
         senderId: mission.creatorId,
         receiverId: student.id,
         amount: mission.reward,
-        description: `Pago por misión: ${mission.title}`
+        description: `Pago por tarea: ${mission.title}`
       })
     ])
 

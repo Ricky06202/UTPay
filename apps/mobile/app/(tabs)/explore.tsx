@@ -97,8 +97,8 @@ export default function ExploreScreen() {
               
               return (
                 <View className="bg-white dark:bg-gray-800 p-6 rounded-[32px] mb-4 flex-row justify-between items-center shadow-sm border border-gray-50 dark:border-gray-700">
-                  <View className="flex-row items-center">
-                    <View className={`h-14 w-14 rounded-2xl items-center justify-center mr-4 ${
+                  <View className="flex-row items-center flex-1 mr-4 overflow-hidden">
+                    <View className={`h-14 w-14 rounded-2xl items-center justify-center mr-4 flex-shrink-0 ${
                       !isExpense ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'
                     }`}>
                       <IconSymbol 
@@ -107,18 +107,24 @@ export default function ExploreScreen() {
                         color={!isExpense ? '#22c55e' : '#ef4444'} 
                       />
                     </View>
-                    <View>
-                      <Text className="font-bold text-gray-800 dark:text-gray-100 text-lg">
+                    <View className="flex-1 overflow-hidden">
+                      <Text 
+                        className="font-bold text-gray-800 dark:text-gray-100 text-lg"
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
                         {item.description === 'Transferencia UTPay' ? displayName : item.description}
                       </Text>
-                      <Text className="text-gray-500 dark:text-gray-400 text-sm">
+                      <Text className="text-gray-500 dark:text-gray-400 text-sm" numberOfLines={1}>
                         {new Date(item.createdAt).toLocaleString()}
                       </Text>
                     </View>
                   </View>
-                  <Text className={`font-bold text-2xl ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
-                    {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
-                  </Text>
+                  <View className="flex-shrink-0 ml-2">
+                    <Text className={`font-bold text-2xl ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
+                      {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
+                    </Text>
+                  </View>
                 </View>
               );
             }}

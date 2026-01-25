@@ -426,26 +426,32 @@ export default function HomeScreen() {
                     const displayName = isExpense ? `A: ${item.receiverName}` : `De: ${item.senderName}`;
                     return (
                       <View key={i} className="flex-row justify-between items-center mb-6 last:mb-0">
-                        <View className="flex-row items-center">
-                          <View className={`h-10 w-10 rounded-full items-center justify-center mr-3 ${!isExpense ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+                        <View className="overflow-hidden flex-row flex-1 items-center mr-4">
+                          <View className={`h-10 w-10 rounded-full items-center justify-center mr-3 flex-shrink-0 ${!isExpense ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
                             <IconSymbol 
                               name={!isExpense ? 'add' : 'remove'} 
                               size={18} 
                               color={!isExpense ? '#22c55e' : '#ef4444'} 
                             />
                           </View>
-                          <View>
-                            <Text className="font-medium text-gray-700 dark:text-gray-300">
+                          <View className="overflow-hidden flex-1">
+                            <Text 
+                              className="font-medium text-gray-700 dark:text-gray-300"
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
                               {item.description === 'Transferencia UTPay' ? displayName : item.description}
                             </Text>
-                            <Text className="text-xs text-gray-400">
+                            <Text className="text-xs text-gray-400" numberOfLines={1}>
                               {new Date(item.createdAt).toLocaleDateString()}
                             </Text>
                           </View>
                         </View>
-                        <Text className={`font-bold ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
-                          {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
-                        </Text>
+                        <View className="flex-shrink-0 ml-2">
+                          <Text className={`font-bold ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
+                            {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
+                          </Text>
+                        </View>
                       </View>
                     );
                   })
@@ -479,7 +485,7 @@ export default function HomeScreen() {
                   
                   <Text className="mb-2 ml-2 text-gray-500">Número UTPay del receptor</Text>
                   <View className="flex-row items-center p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700">
-                    <Text className="text-gray-400 font-bold text-lg mr-1">UTP-</Text>
+                    <Text className="mr-1 text-lg font-bold text-gray-400">UTP-</Text>
                     <TextInput
                       className="flex-1 text-lg font-bold dark:text-white"
                       placeholder="0000"
@@ -515,12 +521,12 @@ export default function HomeScreen() {
                     <TouchableOpacity 
                       onPress={() => handleVerifyRecipient()}
                       disabled={isVerifying}
-                      className="flex-2 justify-center items-center h-14 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30"
+                      className="justify-center items-center h-14 bg-blue-600 rounded-2xl shadow-lg flex-2 shadow-blue-500/30"
                     >
                       {isVerifying ? (
                         <ActivityIndicator color="white" />
                       ) : (
-                        <Text className="text-lg font-bold text-white px-8">Verificar Receptor</Text>
+                        <Text className="px-8 text-lg font-bold text-white">Verificar Receptor</Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -531,16 +537,16 @@ export default function HomeScreen() {
                     <View className="p-4 mb-4 bg-blue-50 rounded-full dark:bg-blue-900/20">
                       <IconSymbol name="paperplane.fill" size={32} color="#2563eb" />
                     </View>
-                    <Text className="text-2xl font-bold text-gray-900 dark:text-white text-center">Confirmar Envío</Text>
+                    <Text className="text-2xl font-bold text-center text-gray-900 dark:text-white">Confirmar Envío</Text>
                   </View>
 
-                  <View className="bg-gray-50 dark:bg-gray-700 p-6 rounded-3xl mb-8">
-                    <View className="flex-row justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-4">
+                  <View className="p-6 mb-8 bg-gray-50 rounded-3xl dark:bg-gray-700">
+                    <View className="flex-row justify-between pb-4 mb-4 border-b border-gray-200 dark:border-gray-600">
                       <Text className="text-gray-500 dark:text-gray-400">Enviar a:</Text>
                       <View className="items-end">
-                        <Text className="font-bold text-gray-900 dark:text-white text-lg">{recipientData?.name}</Text>
-                        <Text className="text-gray-500 dark:text-gray-400 text-xs mb-1">{recipientData?.email}</Text>
-                        <Text className="text-blue-600 font-bold tracking-widest">{formatUTPId(receiverUTPId)}</Text>
+                        <Text className="text-lg font-bold text-gray-900 dark:text-white">{recipientData?.name}</Text>
+                        <Text className="mb-1 text-xs text-gray-500 dark:text-gray-400">{recipientData?.email}</Text>
+                        <Text className="font-bold tracking-widest text-blue-600">{formatUTPId(receiverUTPId)}</Text>
                       </View>
                     </View>
                     
@@ -561,12 +567,12 @@ export default function HomeScreen() {
                     <TouchableOpacity 
                       onPress={handleSendMoney}
                       disabled={isSending}
-                      className="flex-2 justify-center items-center h-14 bg-green-600 rounded-2xl shadow-lg shadow-green-500/30"
+                      className="justify-center items-center h-14 bg-green-600 rounded-2xl shadow-lg flex-2 shadow-green-500/30"
                     >
                       {isSending ? (
                         <ActivityIndicator color="white" />
                       ) : (
-                        <Text className="text-lg font-bold text-white px-8">Confirmar y Enviar</Text>
+                        <Text className="px-8 text-lg font-bold text-white">Confirmar y Enviar</Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -585,12 +591,12 @@ export default function HomeScreen() {
         >
           <View className="flex-1 justify-center items-center px-6 bg-black/50">
             <View className="bg-white dark:bg-gray-800 w-full max-w-sm p-10 rounded-[50px] items-center shadow-2xl">
-              <View className="mb-6 p-4 bg-blue-50 rounded-3xl dark:bg-blue-900/20">
+              <View className="p-4 mb-6 bg-blue-50 rounded-3xl dark:bg-blue-900/20">
                 <IconSymbol name="qr.code" size={32} color="#2563eb" />
               </View>
               
               <Text className="mb-2 text-2xl font-bold text-gray-900 dark:text-white">Mi Código QR</Text>
-              <Text className="mb-8 text-gray-500 text-center">Muestra este código para recibir transferencias</Text>
+              <Text className="mb-8 text-center text-gray-500">Muestra este código para recibir transferencias</Text>
               
               <View className="p-6 bg-white rounded-[40px] shadow-sm border border-gray-100">
                 <QRCode
@@ -601,17 +607,17 @@ export default function HomeScreen() {
                 />
               </View>
               
-              <View className="mt-8 bg-gray-50 px-6 py-3 rounded-full dark:bg-gray-700">
-                <Text className="text-xl font-black text-blue-600 dark:text-blue-400 tracking-widest">
+              <View className="px-6 py-3 mt-8 bg-gray-50 rounded-full dark:bg-gray-700">
+                <Text className="text-xl font-black tracking-widest text-blue-600 dark:text-blue-400">
                   {formatUTPId(user?.id)}
                 </Text>
               </View>
               
               <TouchableOpacity 
                 onPress={() => setIsQRModalVisible(false)}
-                className="mt-10 w-full h-14 bg-gray-900 rounded-2xl items-center justify-center dark:bg-gray-700"
+                className="justify-center items-center mt-10 w-full h-14 bg-gray-900 rounded-2xl dark:bg-gray-700"
               >
-                <Text className="text-white font-bold text-lg">Cerrar</Text>
+                <Text className="text-lg font-bold text-white">Cerrar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -633,9 +639,9 @@ export default function HomeScreen() {
             />
             
             {/* Overlay del escáner */}
-            <View className="flex-1 items-center justify-center">
-              <View className="w-64 h-64 border-2 border-white/50 rounded-3xl" />
-              <Text className="mt-10 text-white font-bold text-lg bg-black/50 px-6 py-2 rounded-full">
+            <View className="flex-1 justify-center items-center">
+              <View className="w-64 h-64 rounded-3xl border-2 border-white/50" />
+              <Text className="px-6 py-2 mt-10 text-lg font-bold text-white rounded-full bg-black/50">
                 Escanea el código QR UTPay
               </Text>
             </View>
@@ -644,7 +650,7 @@ export default function HomeScreen() {
             <TouchableOpacity 
               onPress={() => setIsScannerVisible(false)}
               style={{ position: 'absolute', top: insets.top + 20, right: 20 }}
-              className="bg-white/20 p-4 rounded-full"
+              className="p-4 rounded-full bg-white/20"
             >
               <IconSymbol name="close" size={24} color="white" />
             </TouchableOpacity>

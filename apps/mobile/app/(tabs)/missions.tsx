@@ -4,16 +4,16 @@ import { useAuth } from '@/context/auth';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Modal,
-    Platform,
-    RefreshControl,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -88,7 +88,7 @@ export default function MissionsScreen() {
 
   useEffect(() => {
     fetchInitialData();
-  }, []);
+  }, [user?.id]);
 
   const fetchInitialData = async () => {
     setIsLoading(true);
@@ -124,7 +124,7 @@ export default function MissionsScreen() {
       if (userRes) {
         const userData = await userRes.json();
         if (userData.success) {
-          // Combinar misiones abiertas con las del usuario, evitando duplicados
+          // Combinar tareas abiertas con las del usuario, evitando duplicados
           const userMissions = userData.missions;
           const openIds = new Set(allMissions.map((m: any) => m.id));
           
@@ -209,14 +209,15 @@ export default function MissionsScreen() {
     }
   };
 
-  const handleCancelTask = async (missionId: number) => {
+  const handleCancelTask = async (mission: any) => {
+    const isCompleted = mission.status === 'completed';
     const executeCancel = async () => {
       try {
         const response = await fetch(`${API_URL}/missions/cancel`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            missionId: Number(missionId), 
+            missionId: Number(mission.id), 
             userId: Number(user?.id) 
           }),
         });
@@ -226,7 +227,7 @@ export default function MissionsScreen() {
         if (data.success) {
           await fetchMissions();
           await refreshUser();
-          showAlert('¡Éxito!', 'Tarea eliminada y saldo reembolsado', 'success');
+          showAlert('¡Éxito!', data.message || 'Tarea eliminada', 'success');
         } else {
           showAlert('Error', data.message || 'No se pudo eliminar la tarea', 'error');
         }
@@ -236,8 +237,10 @@ export default function MissionsScreen() {
     };
 
     showAlert(
-      '¿Eliminar Tarea?',
-      'Se eliminará la tarea permanentemente. Si hay postulantes, sus postulaciones también se borrarán y se te devolverá la recompensa a tu saldo.',
+      isCompleted ? '¿Eliminar del Historial?' : '¿Eliminar Tarea?',
+      isCompleted 
+        ? 'Esta tarea ya fue completada. Al eliminarla, desaparecerá de tu vista pero el pago ya fue realizado.' 
+        : 'Se eliminará la tarea permanentemente. Si hay postulantes, sus postulaciones también se borrarán y se te devolverá la recompensa a tu saldo.',
       'confirm',
       executeCancel
     );
@@ -383,8 +386,9 @@ export default function MissionsScreen() {
 
   const openApplyModal = (mission: any) => {
     setSelectedMissionForApply(mission);
-    // Si ya se postuló, mostrar su oferta actual, si no, la recompensa de la misión
-    setBidAmount(mission.hasApplied ? mission.myBid.toString() : mission.reward.toString());
+    // Si ya se postuló, mostrar su oferta actual, si no, la recompensa de la tarea
+    const hasApplied = mission.hasApplied > 0;
+    setBidAmount(hasApplied ? mission.myBid.toString() : mission.reward.toString());
     setApplyComment(''); // Limpiar comentario previo
     setApplyModalVisible(true);
   };
@@ -402,6 +406,7 @@ export default function MissionsScreen() {
 
   const renderMissionCard = ({ item }: { item: any }) => {
     const isOwner = Number(item.creatorId) === Number(user?.id);
+    const hasApplied = item.hasApplied > 0; // Asegurar que el conteo sea mayor a 0
     
     return (
     <View className="bg-white dark:bg-gray-800 rounded-[32px] p-6 mb-6 shadow-sm border border-gray-50 dark:border-gray-700">
@@ -444,20 +449,35 @@ export default function MissionsScreen() {
         
         {isOwner ? (
           <View className="flex-row">
+            {item.status === 'open' && (
+              <TouchableOpacity 
+                onPress={() => fetchApplications(item.id)}
+                className="justify-center items-center mr-2 px-4 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
+              >
+                <Text className="text-xs font-bold text-blue-600 dark:text-blue-400">Ver Postulantes</Text>
+              </TouchableOpacity>
+            )}
+            
+            {item.status === 'assigned' && (
+              <TouchableOpacity 
+                onPress={() => fetchApplications(item.id)}
+                className="justify-center items-center mr-2 px-4 h-10 bg-green-50 rounded-full dark:bg-green-900/20"
+              >
+                <Text className="text-xs font-bold text-green-600 dark:text-green-400">Finalizar Tarea</Text>
+              </TouchableOpacity>
+            )}
+
+            {item.status === 'open' && (
+              <TouchableOpacity 
+                onPress={() => handleEditPress(item)}
+                className="justify-center items-center mr-2 w-10 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
+              >
+                <IconSymbol name="pencil" size={18} color="#2563eb" />
+              </TouchableOpacity>
+            )}
+            
             <TouchableOpacity 
-              onPress={() => fetchApplications(item.id)}
-              className="justify-center items-center mr-2 px-4 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
-            >
-              <Text className="text-xs font-bold text-blue-600 dark:text-blue-400">Ver Postulantes</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => handleEditPress(item)}
-              className="justify-center items-center mr-2 w-10 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
-            >
-              <IconSymbol name="pencil" size={18} color="#2563eb" />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => handleCancelTask(item.id)}
+              onPress={() => handleCancelTask(item)}
               className="justify-center items-center w-10 h-10 bg-red-50 rounded-full dark:bg-red-900/20"
             >
               <IconSymbol name="trash" size={18} color="#ef4444" />
@@ -465,7 +485,7 @@ export default function MissionsScreen() {
           </View>
         ) : (
           <View className="flex-row items-center">
-            {item.hasApplied ? (
+            {hasApplied ? (
               <View className="mr-3 items-end">
                 <Text className="text-[10px] text-gray-400 uppercase font-bold">Tu Oferta</Text>
                 <Text className="text-xs font-bold text-blue-600">${item.myBid?.toFixed(2)}</Text>
@@ -473,10 +493,10 @@ export default function MissionsScreen() {
             ) : null}
             <TouchableOpacity 
               onPress={() => openApplyModal(item)}
-              className={`px-6 py-2 rounded-full ${item.hasApplied ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-blue-600'}`}
+              className={`px-6 py-2 rounded-full ${hasApplied ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-blue-600'}`}
             >
-              <Text className={`text-sm font-bold ${item.hasApplied ? 'text-orange-600 dark:text-orange-400' : 'text-white'}`}>
-                {item.hasApplied ? 'Modificar Oferta' : 'Postularme'}
+              <Text className={`text-sm font-bold ${hasApplied ? 'text-orange-600 dark:text-orange-400' : 'text-white'}`}>
+                {hasApplied ? 'Modificar Oferta' : 'Postularme'}
               </Text>
             </TouchableOpacity>
           </View>
