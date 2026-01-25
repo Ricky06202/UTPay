@@ -58,12 +58,12 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 ## 📓 Bitácora de Desarrollo
 
 ### Día 1 (24 de Enero, 2026)
-*   **Gestión de Tareas**: Se implementó la lógica para eliminar tareas finalizadas del historial sin afectar los pagos ya realizados.
-*   **Sistema de Postulaciones**: Actualización del motor de búsqueda de tareas para mostrar el estado de postulación del usuario (`hasApplied`) y su oferta actual (`myBid`).
-*   **Re-ofertas**: Se habilitó la posibilidad de modificar ofertas existentes en tareas abiertas.
-*   **Estandarización UI**: Cambio global del término "Misión" a "Tarea" para una mejor comprensión del usuario panameño.
-*   **Optimización de Diseño**: Ajuste de contenedores en "Actividad Reciente" con truncado de texto inteligente (`ellipsizeMode`) para evitar desbordamientos en pantallas pequeñas.
-*   **Integridad de Datos**: Implementación de `db.batch` en el backend para asegurar que todas las transacciones financieras sean atómicas (si falla un paso, se revierte todo).
+*   **Sistema de Pagos QR e Identidad**: Se implementó la generación de códigos QR únicos para cada usuario y la capacidad de realizar pagos escaneando dichos códigos o ingresando manualmente el **UTP ID**.
+*   **Integridad Financiera (Batching)**: Implementación de `db.batch` en el backend para asegurar que todas las transferencias sean atómicas: se descuenta al emisor, se acredita al receptor y se registra en el historial en una sola operación indivisible.
+*   **Historial de Actividad**: Creación de un sistema de historial de transacciones detallado, visible tanto en el panel principal como en una vista exploradora dedicada.
+*   **Gestión de Tareas (Escrow)**: Se implementó la lógica para manejar tareas, incluyendo la eliminación de tareas finalizadas y el sistema de "pagos protegidos".
+*   **Sistema de Postulaciones**: Actualización del motor de búsqueda de tareas para mostrar el estado de postulación del usuario (`hasApplied`) y su oferta actual (`myBid`), permitiendo re-ofertas.
+*   **Estandarización UI**: Cambio global del término "Misión" a "Tarea" para una mejor comprensión del usuario y optimización de componentes visuales con truncado de texto inteligente (`ellipsizeMode`).
 
 ---
 
