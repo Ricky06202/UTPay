@@ -24,7 +24,9 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 
 - **Frontend**: [Expo](https://expo.dev) (React Native + Web) para una experiencia multiplataforma real.
 - **Backend**: Node.js con [Hono API](https://hono.dev), desplegado en **Cloudflare Workers** para una arquitectura serverless global.
-- **Base de Datos**: **Cloudflare D1** (SQLite distribuido en el borde) gestionado con [Drizzle ORM](https://orm.drizzle.team). Esta elección tecnológica asegura baja latencia, alta disponibilidad y costos operativos mínimos.
+- **Base de Datos Edge**: **Cloudflare D1**. Se utiliza SQLite distribuido en el borde (Edge Computing), lo que permite que los datos estén físicamente cerca del usuario, reduciendo la latencia a milisegundos y eliminando la necesidad de servidores de base de datos tradicionales.
+- **ORM**: [Drizzle ORM](https://orm.drizzle.team) para un tipado estricto y consultas SQL ultra-rápidas.
+- **Hosting e Infraestructura**: Todo el ecosistema (Frontend, Backend y DB) reside en la red global de **Cloudflare** (Pages, Workers y D1), garantizando una disponibilidad del 99.9% y escalabilidad automática sin intervención manual.
 - **Seguridad**: Autenticación basada en JWT vinculada potencialmente al correo institucional.
 
 ---
@@ -50,7 +52,7 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 - [x] **Fase 1: MVP Centralizado** (Estado Actual) - Lógica de base de datos robusta y despliegue en Cloudflare.
 - [ ] **Fase 2: Identidad y Confianza** - Implementación de reseñas, perfiles públicos y onboarding abierto con verificación KYC para externos.
 - [ ] **Fase 3: Branding y Expansión** - Diseño de símbolo único para UTP Coin (eliminando el uso de $) y expansión a comercios físicos.
-- [ ] **Fase 4: Tokenización** - Migración a una red Layer 2 (Polygon o Solana) para convertir el UTP Coin en un activo digital real.
+- [ ] **Fase 4: Descentralización (PoA)** - Migración a una red blockchain privada basada en **Hyperledger Besu** con consenso PoA (IBFT 2.0). Ver [Plan de Blockchain](BLOCKCHAIN.md).
 - [ ] **Fase 5: Gobernanza** - Sistema de votación para decisiones universitarias basado en el uso de la moneda.
 
 ---
@@ -64,6 +66,16 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 *   **Gestión de Tareas (Escrow)**: Se implementó la lógica para manejar tareas, incluyendo la eliminación de tareas finalizadas y el sistema de "pagos protegidos".
 *   **Sistema de Postulaciones**: Actualización del motor de búsqueda de tareas para mostrar el estado de postulación del usuario (`hasApplied`) y su oferta actual (`myBid`), permitiendo re-ofertas.
 *   **Estandarización UI**: Cambio global del término "Misión" a "Tarea" para una mejor comprensión del usuario y optimización de componentes visuales con truncado de texto inteligente (`ellipsizeMode`).
+
+---
+
+## 🎓 Potencial para Tesis / Paper Científico
+
+Este proyecto está estructurado para servir como base de investigación en diversas áreas:
+1.  **Ingeniería de Software**: Análisis de rendimiento de bases de datos SQL en el borde (D1) vs. bases de datos tradicionales.
+2.  **Economía Digital**: Impacto de una moneda interna en la velocidad del dinero dentro de una micro-economía cerrada.
+3.  **Ciberseguridad**: Implementación de protocolos de confianza cero (Zero Trust) y validación de identidad KYC en entornos académicos.
+4.  **UX/UI**: Estudio sobre la adopción de billeteras digitales en usuarios jóvenes (Gen Z) en Panamá.
 
 ---
 

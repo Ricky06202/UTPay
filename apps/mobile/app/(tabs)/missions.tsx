@@ -452,7 +452,7 @@ export default function MissionsScreen() {
             {item.status === 'open' && (
               <TouchableOpacity 
                 onPress={() => fetchApplications(item.id)}
-                className="justify-center items-center mr-2 px-4 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
+                className="justify-center items-center px-4 mr-2 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
               >
                 <Text className="text-xs font-bold text-blue-600 dark:text-blue-400">Ver Postulantes</Text>
               </TouchableOpacity>
@@ -461,32 +461,34 @@ export default function MissionsScreen() {
             {item.status === 'assigned' && (
               <TouchableOpacity 
                 onPress={() => fetchApplications(item.id)}
-                className="justify-center items-center mr-2 px-4 h-10 bg-green-50 rounded-full dark:bg-green-900/20"
+                className="justify-center items-center px-4 mr-2 h-10 bg-green-50 rounded-full dark:bg-green-900/20"
               >
                 <Text className="text-xs font-bold text-green-600 dark:text-green-400">Finalizar Tarea</Text>
               </TouchableOpacity>
             )}
 
             {item.status === 'open' && (
-              <TouchableOpacity 
-                onPress={() => handleEditPress(item)}
-                className="justify-center items-center mr-2 w-10 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
-              >
-                <IconSymbol name="pencil" size={18} color="#2563eb" />
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity 
+                  onPress={() => handleEditPress(item)}
+                  className="justify-center items-center mr-2 w-10 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
+                >
+                  <IconSymbol name="pencil" size={18} color="#2563eb" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  onPress={() => handleCancelTask(item)}
+                  className="justify-center items-center w-10 h-10 bg-red-50 rounded-full dark:bg-red-900/20"
+                >
+                  <IconSymbol name="trash" size={18} color="#ef4444" />
+                </TouchableOpacity>
+              </>
             )}
-            
-            <TouchableOpacity 
-              onPress={() => handleCancelTask(item)}
-              className="justify-center items-center w-10 h-10 bg-red-50 rounded-full dark:bg-red-900/20"
-            >
-              <IconSymbol name="trash" size={18} color="#ef4444" />
-            </TouchableOpacity>
           </View>
         ) : (
           <View className="flex-row items-center">
             {hasApplied ? (
-              <View className="mr-3 items-end">
+              <View className="items-end mr-3">
                 <Text className="text-[10px] text-gray-400 uppercase font-bold">Tu Oferta</Text>
                 <Text className="text-xs font-bold text-blue-600">${item.myBid?.toFixed(2)}</Text>
               </View>
@@ -508,17 +510,16 @@ export default function MissionsScreen() {
 
   return (
     <View 
+      className="flex-1"
       style={{ 
-        flex: 1, 
         paddingTop: insets.top,
-        paddingBottom: insets.bottom,
         paddingLeft: insets.left,
         paddingRight: insets.right,
       }} 
-      className="bg-gray-50 dark:bg-gray-900"
     >
-      <View className={`flex-1 ${isWeb ? 'max-w-[1200px] mx-auto w-full' : ''}`}>
-        <View className="flex-row justify-between items-center px-6 py-6">
+      <View className="flex-1 items-center">
+        <View className="w-full max-w-[1200px] flex-1">
+          <View className="flex-row justify-between items-center px-6 pt-2 pb-6">
           <View>
             <Text className="text-3xl font-bold text-gray-900 dark:text-white">Tareas</Text>
             <Text className="text-gray-500">Ayuda y gana UTP Coins</Text>
@@ -530,7 +531,7 @@ export default function MissionsScreen() {
                 setIsRefreshing(true);
                 fetchMissions();
               }}
-              className="justify-center items-center w-12 h-12 bg-white dark:bg-gray-800 rounded-full shadow-sm border border-gray-100 dark:border-gray-700 mr-3"
+              className="justify-center items-center mr-3 w-12 h-12 bg-white rounded-full border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700"
             >
               <IconSymbol name="refresh" size={24} color="#2563eb" />
             </TouchableOpacity>
@@ -538,7 +539,7 @@ export default function MissionsScreen() {
             {isWeb && (
               <TouchableOpacity 
                 onPress={() => router.push('/')}
-                className="bg-white dark:bg-gray-800 px-6 py-3 rounded-full shadow-sm border border-gray-100 dark:border-gray-700 mr-3"
+                className="px-6 py-3 mr-3 bg-white rounded-full border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700"
               >
                 <Text className="font-bold text-blue-600">Volver al Panel</Text>
               </TouchableOpacity>
@@ -574,7 +575,7 @@ export default function MissionsScreen() {
             }
             ListEmptyComponent={
               <View className="justify-center items-center py-20">
-                <IconSymbol name="checklist" size={64} color="#d1d5db" />
+                <IconSymbol name="assignment" size={64} color="#d1d5db" />
                 <Text className="px-10 mt-4 text-center text-gray-400">No hay tareas disponibles por el momento. ¡Crea la primera!</Text>
               </View>
             }
@@ -707,7 +708,7 @@ export default function MissionsScreen() {
               <ActivityIndicator size="large" color="#2563eb" className="mt-10" />
             ) : applications.length === 0 ? (
               <View className="justify-center items-center py-20">
-                <IconSymbol name="checklist" size={64} color="#d1d5db" />
+                <IconSymbol name="assignment" size={64} color="#d1d5db" />
                 <Text className="mt-4 text-center text-gray-400">Aún no hay postulantes para esta tarea.</Text>
               </View>
             ) : (
@@ -719,7 +720,7 @@ export default function MissionsScreen() {
                     <View className="flex-1 mr-4">
                       <Text className="text-lg font-bold text-gray-900 dark:text-white">{item.studentName}</Text>
                       <View className="flex-row items-center mb-1">
-                        <Text className="text-sm font-black text-green-600 dark:text-green-400 mr-2">${item.bidAmount.toFixed(2)}</Text>
+                        <Text className="mr-2 text-sm font-black text-green-600 dark:text-green-400">${item.bidAmount.toFixed(2)}</Text>
                         <Text className="text-[10px] text-gray-400 uppercase font-bold">Oferta</Text>
                       </View>
                       <Text className="text-sm text-gray-500 dark:text-gray-400" numberOfLines={2}>
@@ -743,7 +744,7 @@ export default function MissionsScreen() {
                       </TouchableOpacity>
                     ) : (
                       <View className="px-3 py-1 bg-gray-200 rounded-full dark:bg-gray-600">
-                        <Text className="text-xs font-medium text-gray-500 dark:text-gray-300 capitalize">{item.status === 'completed' ? 'Completado' : item.status}</Text>
+                        <Text className="text-xs font-medium text-gray-500 capitalize dark:text-gray-300">{item.status === 'completed' ? 'Completado' : item.status}</Text>
                       </View>
                     )}
                   </View>
@@ -881,6 +882,7 @@ export default function MissionsScreen() {
           </View>
         </View>
       </Modal>
+    </View>
     </View>
   );
 }

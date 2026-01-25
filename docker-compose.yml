@@ -1,0 +1,118 @@
+services:
+  node1:
+    image: hyperledger/besu:latest
+    container_name: utpay-node-1
+    volumes:
+      - ./blockchain/networkFiles/keys/0x0bc25147c3593b8dd7c873d0a74596754226c963:/var/lib/besu/key
+      - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
+    command:
+      - --genesis-file=/etc/besu/genesis.json
+      - --node-private-key-file=/var/lib/besu/key/key
+      - --rpc-http-enabled
+      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --host-allowlist="*"
+      - --rpc-http-cors-origins="*"
+      - --rpc-http-port=8545
+      - --rpc-http-host=0.0.0.0
+      - --rpc-ws-enabled
+      - --rpc-ws-api=ETH,NET,IBFT,WEB3
+      - --rpc-ws-port=8546
+      - --rpc-ws-host=0.0.0.0
+      - --p2p-port=30303
+      - --p2p-interface=0.0.0.0
+    ports:
+      - "8545:8545"
+      - "8546:8546"
+      - "30303:30303"
+    networks:
+      utpay_net:
+        ipv4_address: 172.16.239.11
+
+  node2:
+    image: hyperledger/besu:latest
+    container_name: utpay-node-2
+    volumes:
+      - ./blockchain/networkFiles/keys/0x4305f946854e03ed3cd92a27bb0a4b75df5e3cd4:/var/lib/besu/key
+      - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
+    command:
+      - --genesis-file=/etc/besu/genesis.json
+      - --node-private-key-file=/var/lib/besu/key/key
+      - --rpc-http-enabled
+      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --host-allowlist="*"
+      - --rpc-http-cors-origins="*"
+      - --rpc-http-port=8545
+      - --rpc-http-host=0.0.0.0
+      - --p2p-port=30303
+      - --bootnodes=enode://7b4385317137839eb40901d3bdae93ab670ee47be439ce4c381fe2d340bc999d14372f3b297299a70333b07a5aaa5d432e6fb3888ce2568b90ab3186c8a07891@172.16.239.11:30303
+    networks:
+      utpay_net:
+        ipv4_address: 172.16.239.12
+    depends_on:
+      - node1
+
+  node3:
+    image: hyperledger/besu:latest
+    container_name: utpay-node-3
+    volumes:
+      - ./blockchain/networkFiles/keys/0x967914c00ac8a93727acd35bf73d037800d15ecf:/var/lib/besu/key
+      - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
+    command:
+      - --genesis-file=/etc/besu/genesis.json
+      - --node-private-key-file=/var/lib/besu/key/key
+      - --rpc-http-enabled
+      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --host-allowlist="*"
+      - --rpc-http-cors-origins="*"
+      - --rpc-http-port=8545
+      - --rpc-http-host=0.0.0.0
+      - --p2p-port=30303
+      - --bootnodes=enode://7b4385317137839eb40901d3bdae93ab670ee47be439ce4c381fe2d340bc999d14372f3b297299a70333b07a5aaa5d432e6fb3888ce2568b90ab3186c8a07891@172.16.239.11:30303
+    networks:
+      utpay_net:
+        ipv4_address: 172.16.239.13
+    depends_on:
+      - node1
+
+  node4:
+    image: hyperledger/besu:latest
+    container_name: utpay-node-4
+    volumes:
+      - ./blockchain/networkFiles/keys/0x57898f715d90bf0c992c0dfa74d6e157b9819bed:/var/lib/besu/key
+      - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
+    command:
+      - --genesis-file=/etc/besu/genesis.json
+      - --node-private-key-file=/var/lib/besu/key/key
+      - --rpc-http-enabled
+      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --host-allowlist="*"
+      - --rpc-http-cors-origins="*"
+      - --rpc-http-port=8545
+      - --rpc-http-host=0.0.0.0
+      - --p2p-port=30303
+      - --bootnodes=enode://7b4385317137839eb40901d3bdae93ab670ee47be439ce4c381fe2d340bc999d14372f3b297299a70333b07a5aaa5d432e6fb3888ce2568b90ab3186c8a07891@172.16.239.11:30303
+    networks:
+      utpay_net:
+        ipv4_address: 172.16.239.14
+    depends_on:
+      - node1
+
+  explorer:
+    image: alethio/ethereum-lite-explorer:latest
+    container_name: utpay-explorer
+    restart: always
+    ports:
+      - "4000:80"
+    environment:
+      - APP_NODE_URL=http://localhost:8545
+    networks:
+      - utpay_net
+    depends_on:
+      - node1
+
+networks:
+  utpay_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.239.0/24

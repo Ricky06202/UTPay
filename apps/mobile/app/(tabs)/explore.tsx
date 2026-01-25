@@ -47,17 +47,16 @@ export default function ExploreScreen() {
 
   return (
     <View 
+      className="flex-1"
       style={{ 
-        flex: 1, 
         paddingTop: insets.top,
-        paddingBottom: insets.bottom,
         paddingLeft: insets.left,
         paddingRight: insets.right,
       }} 
-      className="bg-gray-50 dark:bg-gray-900"
     >
-      <View className={`flex-1 px-6 pt-6 ${isWeb ? 'max-w-[1200px] mx-auto w-full' : ''}`}>
-        <View className="flex-row justify-between items-center mb-8">
+      <View className="flex-1 items-center">
+        <View className="w-full max-w-[1200px] flex-1 px-6 pt-2">
+        <View className="flex-row justify-between items-center pt-4 mb-8">
           <Text className="text-3xl font-bold text-gray-900 dark:text-white">Historial</Text>
           <View className="flex-row">
             <TouchableOpacity 
@@ -131,6 +130,7 @@ export default function ExploreScreen() {
           />
         )}
       </View>
+    </View>
     </View>
   );
 }

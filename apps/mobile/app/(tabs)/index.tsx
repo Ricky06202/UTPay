@@ -300,20 +300,25 @@ export default function HomeScreen() {
 
   return (
     <View 
+      className="flex-1"
       style={{ 
-        flex: 1, 
         paddingTop: insets.top,
-        paddingBottom: insets.bottom,
         paddingLeft: insets.left,
         paddingRight: insets.right,
       }} 
-      className="bg-gray-50 dark:bg-gray-900"
     >
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        <View className="flex-1 px-6 pb-10 max-w-[1200px] mx-auto w-full">
+      <ScrollView 
+        className="flex-1" 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ 
+          paddingBottom: insets.bottom + 80,
+          alignItems: 'center'
+        }}
+      >
+        <View className="px-6 w-full max-w-[1200px]">
           
           {/* Header */}
-          <View className="flex-row justify-between items-center py-8">
+          <View className="flex-row justify-between items-center pt-2 pb-6">
             <View>
               <Text className="text-lg font-medium text-gray-500 dark:text-gray-400">Panel de Control</Text>
               <Text className="text-3xl font-bold text-gray-900 dark:text-white">Hola, {user?.name || 'Estudiante'}</Text>
