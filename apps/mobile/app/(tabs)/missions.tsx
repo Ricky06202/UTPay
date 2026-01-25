@@ -114,7 +114,7 @@ export default function MissionsScreen() {
   const fetchMissions = async () => {
     try {
       const [openRes, userRes] = await Promise.all([
-        fetch(`${API_URL}/missions/open`),
+        fetch(`${API_URL}/missions/open?userId=${user?.id}`),
         user?.id ? fetch(`${API_URL}/missions/user/${user.id}`) : Promise.resolve(null)
       ]);
 
@@ -383,7 +383,8 @@ export default function MissionsScreen() {
 
   const openApplyModal = (mission: any) => {
     setSelectedMissionForApply(mission);
-    setBidAmount(mission.reward.toString());
+    // Si ya se postuló, mostrar su oferta actual, si no, la recompensa de la misión
+    setBidAmount(mission.hasApplied ? mission.myBid.toString() : mission.reward.toString());
     setApplyComment(''); // Limpiar comentario previo
     setApplyModalVisible(true);
   };
@@ -463,12 +464,22 @@ export default function MissionsScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity 
-            onPress={() => openApplyModal(item)}
-            className="px-6 py-2 bg-blue-600 rounded-full"
-          >
-            <Text className="text-sm font-bold text-white">Postularme</Text>
-          </TouchableOpacity>
+          <View className="flex-row items-center">
+            {item.hasApplied ? (
+              <View className="mr-3 items-end">
+                <Text className="text-[10px] text-gray-400 uppercase font-bold">Tu Oferta</Text>
+                <Text className="text-xs font-bold text-blue-600">${item.myBid?.toFixed(2)}</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity 
+              onPress={() => openApplyModal(item)}
+              className={`px-6 py-2 rounded-full ${item.hasApplied ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-blue-600'}`}
+            >
+              <Text className={`text-sm font-bold ${item.hasApplied ? 'text-orange-600 dark:text-orange-400' : 'text-white'}`}>
+                {item.hasApplied ? 'Modificar Oferta' : 'Postularme'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
     </View>
@@ -488,19 +499,9 @@ export default function MissionsScreen() {
     >
       <View className={`flex-1 ${isWeb ? 'max-w-[1200px] mx-auto w-full' : ''}`}>
         <View className="flex-row justify-between items-center px-6 py-6">
-          <View className="flex-row items-center">
-            {isWeb && (
-              <TouchableOpacity 
-                onPress={() => router.push('/')}
-                className="mr-4 p-2 bg-white dark:bg-gray-800 rounded-full shadow-sm border border-gray-100 dark:border-gray-700"
-              >
-                <IconSymbol name="chevron.left" size={24} color="#2563eb" />
-              </TouchableOpacity>
-            )}
-            <View>
-              <Text className="text-3xl font-bold text-gray-900 dark:text-white">Tareas</Text>
-              <Text className="text-gray-500">Ayuda y gana UTP Coins</Text>
-            </View>
+          <View>
+            <Text className="text-3xl font-bold text-gray-900 dark:text-white">Tareas</Text>
+            <Text className="text-gray-500">Ayuda y gana UTP Coins</Text>
           </View>
           
           <View className="flex-row items-center">
@@ -513,6 +514,15 @@ export default function MissionsScreen() {
             >
               <IconSymbol name="refresh" size={24} color="#2563eb" />
             </TouchableOpacity>
+
+            {isWeb && (
+              <TouchableOpacity 
+                onPress={() => router.push('/')}
+                className="bg-white dark:bg-gray-800 px-6 py-3 rounded-full shadow-sm border border-gray-100 dark:border-gray-700 mr-3"
+              >
+                <Text className="font-bold text-blue-600">Volver al Panel</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity 
               onPress={handleAddNewPress}

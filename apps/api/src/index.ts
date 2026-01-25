@@ -262,7 +262,9 @@ app.post('/missions/create', async (c) => {
 // 2. Listar misiones abiertas
 app.get('/missions/open', async (c) => {
   try {
+    const userId = c.req.query('userId') ? parseInt(c.req.query('userId')!) : null
     const db = createDb(c.env.DB)
+    
     const openMissions = await db.select({
       id: missions.id,
       title: missions.title,
@@ -274,7 +276,10 @@ app.get('/missions/open', async (c) => {
       status: missions.status,
       creatorId: missions.creatorId,
       creatorName: users.name,
-      createdAt: missions.createdAt
+      createdAt: missions.createdAt,
+      // Información de postulación del usuario actual si se proporciona userId
+      hasApplied: userId ? sql`EXISTS(SELECT 1 FROM missionApplications WHERE mission_id = ${missions.id} AND student_id = ${userId})` : sql`0`,
+      myBid: userId ? sql`(SELECT bid_amount FROM missionApplications WHERE mission_id = ${missions.id} AND student_id = ${userId} LIMIT 1)` : sql`NULL`
     })
     .from(missions)
     .leftJoin(users, eq(missions.creatorId, users.id))
@@ -284,6 +289,37 @@ app.get('/missions/open', async (c) => {
     .all()
 
     return c.json({ success: true, missions: openMissions })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// 2.3. Listar misiones a las que el usuario se ha postulado
+app.get('/missions/my-applications/:userId', async (c) => {
+  try {
+    const userId = parseInt(c.req.param('userId'))
+    const db = createDb(c.env.DB)
+    
+    const myApplications = await db.select({
+      applicationId: missionApplications.id,
+      missionId: missions.id,
+      title: missions.title,
+      description: missions.description,
+      reward: missions.reward, // Recompensa original/actual de la misión
+      myBid: missionApplications.bidAmount, // Lo que el usuario ofertó
+      status: missionApplications.status, // Estado de su postulación
+      missionStatus: missions.status, // Estado de la misión
+      creatorName: users.name,
+      createdAt: missionApplications.createdAt
+    })
+    .from(missionApplications)
+    .innerJoin(missions, eq(missionApplications.missionId, missions.id))
+    .leftJoin(users, eq(missions.creatorId, users.id))
+    .where(eq(missionApplications.studentId, userId))
+    .orderBy(desc(missionApplications.createdAt))
+    .all()
+
+    return c.json({ success: true, applications: myApplications })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
@@ -372,13 +408,25 @@ app.post('/missions/apply', async (c) => {
       return c.json({ success: false, message: 'La oferta debe ser mayor a 0' }, 400)
     }
 
-    // Evitar postulación doble
+    // Permitir actualizar oferta si ya existe
     const existing = await db.select().from(missionApplications)
       .where(and(eq(missionApplications.missionId, missionId), eq(missionApplications.studentId, studentId)))
       .get()
     
     if (existing) {
-      return c.json({ success: false, message: 'Ya te has postulado a esta misión' }, 400)
+      if (existing.status !== 'pending') {
+        return c.json({ success: false, message: 'No puedes modificar una postulación que ya ha sido procesada' }, 400)
+      }
+
+      await db.update(missionApplications)
+        .set({ 
+          bidAmount: finalBid,
+          comment: comment || existing.comment,
+          createdAt: sql`(strftime('%s', 'now'))`
+        })
+        .where(eq(missionApplications.id, existing.id))
+
+      return c.json({ success: true, message: 'Oferta actualizada correctamente' })
     }
 
     await db.insert(missionApplications).values({
