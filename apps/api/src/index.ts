@@ -118,6 +118,9 @@ app.post('/transactions/send', async (c) => {
       return c.json({ success: false, message: 'El monto debe ser mayor a 0' }, 400)
     }
 
+    // Redondear a 2 decimales
+    const finalAmount = Math.round(amount * 100) / 100
+
     // 1. Buscar emisor y receptor
     const sender = await db.select().from(users).where(eq(users.id, senderId)).get()
     
@@ -132,7 +135,7 @@ app.post('/transactions/send', async (c) => {
     if (!receiver) return c.json({ success: false, message: 'Receptor no encontrado' }, 404)
     if (sender.id === receiver.id) return c.json({ success: false, message: 'No puedes enviarte dinero a ti mismo' }, 400)
     
-    if (sender.balance < amount) {
+    if (sender.balance < finalAmount) {
       return c.json({ success: false, message: 'Saldo insuficiente' }, 400)
     }
 
@@ -141,19 +144,19 @@ app.post('/transactions/send', async (c) => {
     await db.batch([
       // Restar al emisor
       db.update(users)
-        .set({ balance: (sender.balance || 0) - amount })
+        .set({ balance: (sender.balance || 0) - finalAmount })
         .where(eq(users.id, senderId)),
 
       // Sumar al receptor
       db.update(users)
-        .set({ balance: (receiver.balance || 0) + amount })
+        .set({ balance: (receiver.balance || 0) + finalAmount })
         .where(eq(users.id, receiver.id)),
 
       // Registrar transacción
       db.insert(transactions).values({
         senderId,
         receiverId: receiver.id,
-        amount,
+        amount: finalAmount,
         description: description || `Transferencia UTPay`
       })
     ])
@@ -224,25 +227,27 @@ app.get('/missions/categories', async (c) => {
 // 1. Crear una misión (con Escrow)
 app.post('/missions/create', async (c) => {
   try {
-    const { creatorId, title, description, categoryId, reward, slots, whatsapp } = await c.req.json()
+    const { creatorId, title, description, categoryId, reward, whatsapp } = await c.req.json()
     const db = createDb(c.env.DB)
+
+    // Redondear a 2 decimales
+    const finalReward = Math.round(reward * 100) / 100
 
     // Verificar saldo del creador
     const creator = await db.select().from(users).where(eq(users.id, creatorId)).get()
-    if (!creator || creator.balance < reward) {
+    if (!creator || creator.balance < finalReward) {
       return c.json({ success: false, message: 'Saldo insuficiente para crear esta misión' }, 400)
     }
 
     // Restar saldo (Escrow) y crear misión en batch
     await db.batch([
-      db.update(users).set({ balance: (creator.balance || 0) - reward }).where(eq(users.id, creatorId)),
+      db.update(users).set({ balance: (creator.balance || 0) - finalReward }).where(eq(users.id, creatorId)),
       db.insert(missions).values({
         creatorId,
         title,
         description,
         categoryId,
-        reward,
-        slots: slots || 1,
+        reward: finalReward,
         whatsapp,
         status: 'open'
       })
@@ -265,7 +270,6 @@ app.get('/missions/open', async (c) => {
       categoryId: missions.categoryId,
       categoryName: missionCategories.name,
       reward: missions.reward,
-      slots: missions.slots,
       whatsapp: missions.whatsapp,
       status: missions.status,
       creatorId: missions.creatorId,
@@ -297,7 +301,6 @@ app.get('/missions/user/:userId', async (c) => {
       categoryId: missions.categoryId,
       categoryName: missionCategories.name,
       reward: missions.reward,
-      slots: missions.slots,
       whatsapp: missions.whatsapp,
       status: missions.status,
       creatorId: missions.creatorId,
@@ -339,6 +342,7 @@ app.get('/missions/applications/:missionId', async (c) => {
       studentId: missionApplications.studentId,
       studentName: users.name,
       comment: missionApplications.comment,
+      bidAmount: missionApplications.bidAmount,
       status: missionApplications.status,
       createdAt: missionApplications.createdAt
     })
@@ -358,8 +362,15 @@ app.get('/missions/applications/:missionId', async (c) => {
 // 3. Postularse a una misión
 app.post('/missions/apply', async (c) => {
   try {
-    const { missionId, studentId, comment } = await c.req.json()
+    const { missionId, studentId, comment, bidAmount } = await c.req.json()
     const db = createDb(c.env.DB)
+
+    // Redondear a 2 decimales
+    const finalBid = Math.round(bidAmount * 100) / 100
+
+    if (!finalBid || finalBid <= 0) {
+      return c.json({ success: false, message: 'La oferta debe ser mayor a 0' }, 400)
+    }
 
     // Evitar postulación doble
     const existing = await db.select().from(missionApplications)
@@ -374,6 +385,7 @@ app.post('/missions/apply', async (c) => {
       missionId,
       studentId,
       comment,
+      bidAmount: finalBid,
       status: 'pending'
     })
 
@@ -392,14 +404,48 @@ app.post('/missions/accept', async (c) => {
     const application = await db.select().from(missionApplications).where(eq(missionApplications.id, applicationId)).get()
     if (!application) return c.json({ success: false, message: 'Postulación no encontrada' }, 404)
 
+    const mission = await db.select().from(missions).where(eq(missions.id, application.missionId)).get()
+    if (!mission) return c.json({ success: false, message: 'Misión no encontrada' }, 404)
+
+    if (mission.status !== 'open') {
+      return c.json({ success: false, message: 'La misión ya no está abierta para nuevas asignaciones' }, 400)
+    }
+
+    const creator = await db.select().from(users).where(eq(users.id, mission.creatorId)).get()
+    if (!creator) return c.json({ success: false, message: 'Creador no encontrado' }, 404)
+
+    // Ajustar saldo del creador si la oferta es diferente a la recompensa inicial
+    const diff = application.bidAmount - mission.reward
+    if (diff > 0 && creator.balance < diff) {
+      return c.json({ success: false, message: 'No tienes saldo suficiente para cubrir la oferta del estudiante' }, 400)
+    }
+
     await db.batch([
       // Marcar postulación como aceptada
       db.update(missionApplications).set({ status: 'accepted' }).where(eq(missionApplications.id, applicationId)),
-      // Marcar misión como asignada
-      db.update(missions).set({ status: 'assigned' }).where(eq(missions.id, application.missionId))
+      // Rechazar el resto de las postulaciones
+      db.update(missionApplications)
+        .set({ status: 'rejected' })
+        .where(and(
+          eq(missionApplications.missionId, mission.id),
+          sql`${missionApplications.id} != ${applicationId}`
+        )),
+      // Actualizar misión con el nuevo precio y estado
+      db.update(missions).set({ 
+        reward: application.bidAmount,
+        status: 'assigned' 
+      }).where(eq(missions.id, mission.id)),
+      // Ajustar saldo del creador (escrow adicional o reembolso)
+      db.update(users).set({ 
+        balance: (creator.balance || 0) - diff 
+      }).where(eq(users.id, creator.id))
     ])
 
-    return c.json({ success: true, message: 'Estudiante asignado' })
+    return c.json({ 
+      success: true, 
+      message: 'Estudiante asignado, precio actualizado y otros postulantes rechazados',
+      newPrice: application.bidAmount
+    })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
@@ -481,7 +527,7 @@ app.post('/missions/update', async (c) => {
       return c.json({ success: false, message: 'Cuerpo de petición inválido' }, 400);
     }
 
-    const { missionId, userId, title, description, categoryId, reward, slots, whatsapp } = body;
+    const { missionId, userId, title, description, categoryId, reward, whatsapp } = body;
     const db = createDb(c.env.DB);
 
     const mId = Number(missionId);
@@ -502,9 +548,12 @@ app.post('/missions/update', async (c) => {
     }
 
     const rewardNum = Number(reward);
-    if (rewardNum !== mission.reward) {
+    // Redondear a 2 decimales
+    const finalReward = Math.round(rewardNum * 100) / 100
+
+    if (finalReward !== mission.reward) {
       const creator = await db.select().from(users).where(eq(users.id, uId)).get();
-      const diff = rewardNum - mission.reward;
+      const diff = finalReward - mission.reward;
       
       if (creator && creator.balance < diff) {
         return c.json({ success: false, message: 'Saldo insuficiente para aumentar la recompensa' }, 400);
@@ -517,8 +566,7 @@ app.post('/missions/update', async (c) => {
       title,
       description,
       categoryId: Number(categoryId),
-      reward: rewardNum,
-      slots: Number(slots) || 1,
+      reward: finalReward,
       whatsapp
     }).where(eq(missions.id, mId));
 
@@ -531,28 +579,27 @@ app.post('/missions/update', async (c) => {
 // 7. Finalizar misión y liberar pago
 app.post('/missions/complete', async (c) => {
   try {
-    const { missionId } = await c.req.json()
+    const { applicationId } = await c.req.json()
     const db = createDb(c.env.DB)
 
-    const mission = await db.select().from(missions).where(eq(missions.id, missionId)).get()
-    if (!mission || mission.status !== 'assigned') {
-      return c.json({ success: false, message: 'Misión no válida para completar' }, 400)
-    }
-
-    // Buscar al estudiante aceptado
+    // Buscar la postulación aceptada
     const application = await db.select().from(missionApplications)
-      .where(and(eq(missionApplications.missionId, missionId), eq(missionApplications.status, 'accepted')))
+      .where(and(eq(missionApplications.id, applicationId), eq(missionApplications.status, 'accepted')))
       .get()
 
-    if (!application) return c.json({ success: false, message: 'No hay estudiante asignado' }, 404)
+    if (!application) return c.json({ success: false, message: 'Postulación aceptada no encontrada' }, 404)
+
+    const mission = await db.select().from(missions).where(eq(missions.id, application.missionId)).get()
+    if (!mission) return c.json({ success: false, message: 'Misión no encontrada' }, 404)
 
     const student = await db.select().from(users).where(eq(users.id, application.studentId)).get()
     if (!student) return c.json({ success: false, message: 'Estudiante no encontrado' }, 404)
 
     await db.batch([
-      // Marcar misión y postulación como completadas
-      db.update(missions).set({ status: 'completed' }).where(eq(missions.id, missionId)),
-      db.update(missionApplications).set({ status: 'completed' }).where(eq(missionApplications.id, application.id)),
+      // Marcar postulación como completada
+      db.update(missionApplications).set({ status: 'completed' }).where(eq(missionApplications.id, applicationId)),
+      // Marcar misión como completada
+      db.update(missions).set({ status: 'completed' }).where(eq(missions.id, mission.id)),
       // Liberar pago al estudiante
       db.update(users).set({ balance: (student.balance || 0) + mission.reward }).where(eq(users.id, student.id)),
       // Registrar en historial de transacciones
@@ -564,7 +611,7 @@ app.post('/missions/complete', async (c) => {
       })
     ])
 
-    return c.json({ success: true, message: 'Misión completada y pago liberado' })
+    return c.json({ success: true, message: 'Trabajo completado y pago liberado' })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }

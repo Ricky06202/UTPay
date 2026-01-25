@@ -32,7 +32,6 @@ export const missions = sqliteTable("missions", {
   description: text("description").notNull(),
   categoryId: integer("category_id").notNull().references(() => missionCategories.id),
   reward: real("reward").notNull(),
-  slots: integer("slots").default(1),
   whatsapp: text("whatsapp"),
   status: text("status").default('open'), // open, assigned, completed, cancelled
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
@@ -43,6 +42,7 @@ export const missionApplications = sqliteTable("mission_applications", {
   missionId: integer("mission_id").notNull().references(() => missions.id, { onDelete: 'cascade' }),
   studentId: integer("student_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   status: text("status").default('pending'), // pending, accepted, rejected, completed
+  bidAmount: real("bid_amount").notNull(),
   comment: text("comment"),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });

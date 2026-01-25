@@ -11,6 +11,6 @@
     "install:all": "bun install",
     "deploy:all": "bun run deploy:mobile && bun run deploy:api",
     "deploy:mobile": "cd apps/mobile && bun run export && bun run deploy",
-    "deploy:api": "cd apps/api && bun run deploy"
+    "deploy:api": "cd apps/api && bun run db:push && bun run deploy"
   }
 }

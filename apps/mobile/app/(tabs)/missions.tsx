@@ -1,11 +1,13 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { API_URL } from '@/constants/api';
 import { useAuth } from '@/context/auth';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
     Modal,
+    Platform,
     RefreshControl,
     ScrollView,
     Text,
@@ -15,8 +17,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+const isWeb = Platform.OS === 'web';
+
 export default function MissionsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user, refreshUser } = useAuth();
   const [missions, setMissions] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -29,13 +34,17 @@ export default function MissionsScreen() {
   const [description, setDescription] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [reward, setReward] = useState('');
-  const [slots, setSlots] = useState('1');
   const [whatsapp, setWhatsapp] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [viewingApplicationsMissionId, setViewingApplicationsMissionId] = useState<number | null>(null);
   const [applications, setApplications] = useState<any[]>([]);
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
+  const [applyModalVisible, setApplyModalVisible] = useState(false);
+  const [selectedMissionForApply, setSelectedMissionForApply] = useState<any>(null);
+  const [bidAmount, setBidAmount] = useState('');
+  const [applyComment, setApplyComment] = useState('');
+  const [isApplying, setIsApplying] = useState(false);
 
   // Alert Modal State
   const [alertConfig, setAlertConfig] = useState<{
@@ -53,6 +62,28 @@ export default function MissionsScreen() {
 
   const showAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'confirm' = 'info', onConfirm?: () => void) => {
     setAlertConfig({ visible: true, title, message, type, onConfirm });
+  };
+
+  const validateDecimals = (value: string) => {
+    if (!value) return true;
+    const parts = value.split('.');
+    if (parts.length > 2) return false;
+    if (parts.length === 2 && parts[1].length > 2) return false;
+    return true;
+  };
+
+  const handlePriceChange = (value: string, setter: (val: string) => void) => {
+    // Solo permitir números y un punto decimal
+    const cleaned = value.replace(/[^0-9.]/g, '');
+    
+    // Evitar múltiples puntos
+    const parts = cleaned.split('.');
+    if (parts.length > 2) return;
+    
+    // Limitar a 2 decimales
+    if (parts.length === 2 && parts[1].length > 2) return;
+    
+    setter(cleaned);
   };
 
   useEffect(() => {
@@ -130,6 +161,11 @@ export default function MissionsScreen() {
       return;
     }
 
+    if (!validateDecimals(reward)) {
+      showAlert('Error', 'La recompensa no puede tener más de 2 decimales', 'error');
+      return;
+    }
+
     if (!editingTaskId && rewardNum > (user?.balance || 0)) {
       showAlert('Error', 'Saldo insuficiente para crear esta tarea', 'error');
       return;
@@ -145,7 +181,6 @@ export default function MissionsScreen() {
         description,
         categoryId: selectedCategoryId,
         reward: rewardNum,
-        slots: parseInt(slots, 10) || 1,
         whatsapp,
       };
       
@@ -208,6 +243,11 @@ export default function MissionsScreen() {
     );
   };
 
+  const handleAddNewPress = () => {
+    resetForm();
+    setIsCreateModalVisible(true);
+  };
+
   const handleEditPress = (item: any) => {
     setEditingTaskId(item.id);
     setTitle(item.title);
@@ -217,7 +257,6 @@ export default function MissionsScreen() {
       setSelectedCategoryId(category.id);
     }
     setReward(item.reward.toString());
-    setSlots(item.slots.toString());
     setWhatsapp(item.whatsapp || '');
     setIsCreateModalVisible(true);
   };
@@ -255,7 +294,7 @@ export default function MissionsScreen() {
       const data = await response.json();
       if (data.success) {
         showAlert('¡Éxito!', 'Has aceptado al estudiante para esta tarea', 'success');
-        setViewingApplicationsMissionId(null);
+        fetchApplications(viewingApplicationsMissionId!);
         fetchMissions();
       } else {
         showAlert('Error', data.message || 'No se pudo aceptar la postulación', 'error');
@@ -265,27 +304,88 @@ export default function MissionsScreen() {
     }
   };
 
-  const handleApply = async (missionId: number) => {
+  const handleCompleteApplication = async (applicationId: number) => {
+    const executeComplete = async () => {
+      try {
+        const response = await fetch(`${API_URL}/missions/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ applicationId }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showAlert('¡Excelente!', 'Has confirmado el trabajo. El pago ha sido liberado al estudiante.', 'success');
+          fetchApplications(viewingApplicationsMissionId!);
+          fetchMissions();
+          refreshUser();
+        } else {
+          showAlert('Error', data.message || 'No se pudo completar la tarea', 'error');
+        }
+      } catch (error) {
+        showAlert('Error', 'Error de conexión al completar la tarea', 'error');
+      }
+    };
+
+    showAlert(
+      '¿Confirmar Trabajo?',
+      '¿El estudiante ha terminado el trabajo correctamente? Al confirmar, se le transferirá el pago de forma inmediata.',
+      'confirm',
+      executeComplete
+    );
+  };
+
+  const handleApply = async () => {
+    if (!selectedMissionForApply || !bidAmount) {
+      showAlert('Error', 'Por favor ingresa tu oferta', 'error');
+      return;
+    }
+
+    const bidNum = parseFloat(bidAmount);
+    if (isNaN(bidNum) || bidNum <= 0) {
+      showAlert('Error', 'La oferta debe ser un número válido mayor a 0', 'error');
+      return;
+    }
+
+    if (!validateDecimals(bidAmount)) {
+      showAlert('Error', 'La oferta no puede tener más de 2 decimales', 'error');
+      return;
+    }
+
     try {
+      setIsApplying(true);
       const response = await fetch(`${API_URL}/missions/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          missionId,
+          missionId: selectedMissionForApply.id,
           studentId: user?.id,
-          comment: 'Me postulo para esta tarea',
+          comment: applyComment || 'Me postulo para esta tarea',
+          bidAmount: bidNum,
         }),
       });
 
       const data = await response.json();
       if (data.success) {
-        showAlert('¡Postulado!', 'Tu postulación ha sido enviada al creador', 'success');
+        setApplyModalVisible(false);
+        setBidAmount('');
+        setApplyComment('');
+        showAlert('¡Postulado!', 'Tu postulación y oferta han sido enviadas', 'success');
       } else {
-        showAlert('Info', data.message || 'Ya te has postulado a esta tarea', 'info');
+        showAlert('Info', data.message || 'No se pudo enviar la postulación', 'info');
       }
     } catch (error) {
       showAlert('Error', 'No se pudo enviar la postulación', 'error');
+    } finally {
+      setIsApplying(false);
     }
+  };
+
+  const openApplyModal = (mission: any) => {
+    setSelectedMissionForApply(mission);
+    setBidAmount(mission.reward.toString());
+    setApplyComment(''); // Limpiar comentario previo
+    setApplyModalVisible(true);
   };
 
   const resetForm = () => {
@@ -296,7 +396,6 @@ export default function MissionsScreen() {
       setSelectedCategoryId(categories[0].id);
     }
     setReward('');
-    setSlots('1');
     setWhatsapp('');
   };
 
@@ -314,13 +413,18 @@ export default function MissionsScreen() {
           </View>
           <Text className="mb-1 text-xl font-bold text-gray-900 dark:text-white">{item.title}</Text>
           <Text className="mb-2 text-sm text-gray-500 dark:text-gray-400" numberOfLines={2}>{item.description}</Text>
-          <View className="flex-row items-center">
-            <IconSymbol name="assignment" size={14} color="#6b7280" />
-            <Text className="ml-1 text-xs text-gray-500">{item.slots} {item.slots === 1 ? 'plaza disponible' : 'plazas disponibles'}</Text>
-          </View>
           {item.status !== 'open' && (
-            <View className="self-start px-2 py-0.5 mt-2 bg-orange-50 rounded-lg">
-              <Text className="text-[10px] font-bold text-orange-600 uppercase">{item.status}</Text>
+            <View className={`self-start px-3 py-1 mt-2 rounded-full ${
+              item.status === 'assigned' ? 'bg-orange-50 dark:bg-orange-900/20' : 
+              item.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20' : 'bg-gray-50 dark:bg-gray-900/20'
+            }`}>
+              <Text className={`text-[10px] font-bold uppercase ${
+                item.status === 'assigned' ? 'text-orange-600 dark:text-orange-400' : 
+                item.status === 'completed' ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'
+              }`}>
+                {item.status === 'assigned' ? 'En Curso' : 
+                 item.status === 'completed' ? 'Finalizada' : item.status}
+              </Text>
             </View>
           )}
         </View>
@@ -360,7 +464,7 @@ export default function MissionsScreen() {
           </View>
         ) : (
           <TouchableOpacity 
-            onPress={() => handleApply(item.id)}
+            onPress={() => openApplyModal(item)}
             className="px-6 py-2 bg-blue-600 rounded-full"
           >
             <Text className="text-sm font-bold text-white">Postularme</Text>
@@ -373,56 +477,90 @@ export default function MissionsScreen() {
 
   return (
     <View 
-      style={{ flex: 1, paddingTop: insets.top }} 
+      style={{ 
+        flex: 1, 
+        paddingTop: insets.top,
+        paddingBottom: insets.bottom,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+      }} 
       className="bg-gray-50 dark:bg-gray-900"
     >
-      <View className="flex-row justify-between items-center px-6 py-6">
-        <View>
-          <Text className="text-3xl font-bold text-gray-900 dark:text-white">Tareas</Text>
-          <Text className="text-gray-500">Ayuda y gana UTP Coins</Text>
-        </View>
-        <TouchableOpacity 
-          onPress={() => setIsCreateModalVisible(true)}
-          className="justify-center items-center w-12 h-12 bg-blue-600 rounded-full shadow-lg shadow-blue-500/30"
-        >
-          <IconSymbol name="add" size={28} color="white" />
-        </TouchableOpacity>
-      </View>
-
-      {isLoading && !isRefreshing ? (
-        <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color="#2563eb" />
-        </View>
-      ) : (
-        <FlatList
-          data={missions}
-          renderItem={renderMissionCard}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 100 }}
-          refreshControl={
-            <RefreshControl 
-              refreshing={isRefreshing} 
-              onRefresh={() => {
+      <View className={`flex-1 ${isWeb ? 'max-w-[1200px] mx-auto w-full' : ''}`}>
+        <View className="flex-row justify-between items-center px-6 py-6">
+          <View className="flex-row items-center">
+            {isWeb && (
+              <TouchableOpacity 
+                onPress={() => router.push('/')}
+                className="mr-4 p-2 bg-white dark:bg-gray-800 rounded-full shadow-sm border border-gray-100 dark:border-gray-700"
+              >
+                <IconSymbol name="chevron.left" size={24} color="#2563eb" />
+              </TouchableOpacity>
+            )}
+            <View>
+              <Text className="text-3xl font-bold text-gray-900 dark:text-white">Tareas</Text>
+              <Text className="text-gray-500">Ayuda y gana UTP Coins</Text>
+            </View>
+          </View>
+          
+          <View className="flex-row items-center">
+            <TouchableOpacity 
+              onPress={() => {
                 setIsRefreshing(true);
                 fetchMissions();
-              }} 
-            />
-          }
-          ListEmptyComponent={
-            <View className="justify-center items-center py-20">
-              <IconSymbol name="checklist" size={64} color="#d1d5db" />
-              <Text className="px-10 mt-4 text-center text-gray-400">No hay tareas disponibles por el momento. ¡Crea la primera!</Text>
-            </View>
-          }
-        />
-      )}
+              }}
+              className="justify-center items-center w-12 h-12 bg-white dark:bg-gray-800 rounded-full shadow-sm border border-gray-100 dark:border-gray-700 mr-3"
+            >
+              <IconSymbol name="refresh" size={24} color="#2563eb" />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={handleAddNewPress}
+              className="justify-center items-center w-12 h-12 bg-blue-600 rounded-full shadow-lg shadow-blue-500/30"
+            >
+              <IconSymbol name="add" size={28} color="white" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {isLoading && !isRefreshing ? (
+          <View className="flex-1 justify-center items-center">
+            <ActivityIndicator size="large" color="#2563eb" />
+          </View>
+        ) : (
+          <FlatList
+            data={missions}
+            renderItem={renderMissionCard}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 100 }}
+            refreshControl={
+              <RefreshControl 
+                refreshing={isRefreshing} 
+                onRefresh={() => {
+                  setIsRefreshing(true); 
+                  fetchMissions();
+                }} 
+              />
+            }
+            ListEmptyComponent={
+              <View className="justify-center items-center py-20">
+                <IconSymbol name="checklist" size={64} color="#d1d5db" />
+                <Text className="px-10 mt-4 text-center text-gray-400">No hay tareas disponibles por el momento. ¡Crea la primera!</Text>
+              </View>
+            }
+          />
+        )}
+      </View>
 
       {/* Modal para Crear Tarea */}
       <Modal
         visible={isCreateModalVisible}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setIsCreateModalVisible(false)}
+        onRequestClose={() => {
+          setIsCreateModalVisible(false);
+          resetForm();
+        }}
       >
         <View className="flex-1 justify-end bg-black/50">
           <View className="bg-white dark:bg-gray-800 rounded-t-[50px] p-8 max-h-[90%]">
@@ -466,54 +604,36 @@ export default function MissionsScreen() {
 
               <View className="flex-row mb-4">
                 <View className="flex-1 mr-2">
-                  <Text className="mb-2 ml-2 text-gray-500">Recompensa (UTP)</Text>
+                  <Text className="mb-2 ml-2 text-gray-500">Recompensa</Text>
                   <TextInput
                     className="p-4 text-xl font-black bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
                     placeholder="5.00"
                     placeholderTextColor="#9ca3af"
                     keyboardType="numeric"
                     value={reward}
-                    onChangeText={setReward}
+                    onChangeText={(val) => handlePriceChange(val, setReward)}
                   />
                 </View>
+
                 <View className="flex-1 ml-2">
-                  <Text className="mb-2 ml-2 text-gray-500">Plazas Disponibles</Text>
-                  <View className="flex-row items-center bg-gray-50 rounded-2xl dark:bg-gray-700">
-                    <TouchableOpacity 
-                      onPress={() => setSlots(Math.max(1, (parseInt(slots) || 1) - 1).toString())}
-                      className="p-4"
-                    >
-                      <IconSymbol name="remove" size={20} color="#6b7280" />
-                    </TouchableOpacity>
-                    <TextInput
-                      className="flex-1 text-xl font-bold text-center dark:text-white"
-                      keyboardType="numeric"
-                      value={slots}
-                      onChangeText={(val) => setSlots(val.replace(/[^0-9]/g, ''))}
-                    />
-                    <TouchableOpacity 
-                      onPress={() => setSlots(((parseInt(slots) || 0) + 1).toString())}
-                      className="p-4"
-                    >
-                      <IconSymbol name="add" size={20} color="#6b7280" />
-                    </TouchableOpacity>
-                  </View>
+                  <Text className="mb-2 ml-2 text-gray-500">WhatsApp</Text>
+                  <TextInput
+                    className="p-4 font-bold bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
+                    placeholder="+507..."
+                    placeholderTextColor="#9ca3af"
+                    keyboardType="phone-pad"
+                    value={whatsapp}
+                    onChangeText={setWhatsapp}
+                  />
                 </View>
               </View>
 
-              <Text className="mb-2 ml-2 text-gray-500">WhatsApp de contacto</Text>
-              <TextInput
-                className="p-4 mb-4 font-bold bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
-                placeholder="+507..."
-                placeholderTextColor="#9ca3af"
-                keyboardType="phone-pad"
-                value={whatsapp}
-                onChangeText={setWhatsapp}
-              />
-
               <View className="flex-row mt-6">
                 <TouchableOpacity 
-                  onPress={() => setIsCreateModalVisible(false)}
+                  onPress={() => {
+                    setIsCreateModalVisible(false);
+                    resetForm();
+                  }}
                   className="flex-1 justify-center items-center mr-2 h-14 bg-gray-100 rounded-2xl dark:bg-gray-700"
                 >
                   <Text className="font-bold text-gray-600 dark:text-gray-300">Cancelar</Text>
@@ -568,6 +688,10 @@ export default function MissionsScreen() {
                   <View className="flex-row justify-between items-center p-4 mb-4 bg-gray-50 rounded-3xl dark:bg-gray-700">
                     <View className="flex-1 mr-4">
                       <Text className="text-lg font-bold text-gray-900 dark:text-white">{item.studentName}</Text>
+                      <View className="flex-row items-center mb-1">
+                        <Text className="text-sm font-black text-green-600 dark:text-green-400 mr-2">${item.bidAmount.toFixed(2)}</Text>
+                        <Text className="text-[10px] text-gray-400 uppercase font-bold">Oferta</Text>
+                      </View>
                       <Text className="text-sm text-gray-500 dark:text-gray-400" numberOfLines={2}>
                         {item.comment || 'Sin comentario'}
                       </Text>
@@ -580,15 +704,82 @@ export default function MissionsScreen() {
                       >
                         <Text className="text-xs font-bold text-white">Aceptar</Text>
                       </TouchableOpacity>
+                    ) : item.status === 'accepted' ? (
+                      <TouchableOpacity 
+                        onPress={() => handleCompleteApplication(item.id)}
+                        className="px-4 py-2 bg-blue-600 rounded-full"
+                      >
+                        <Text className="text-xs font-bold text-white">Finalizar</Text>
+                      </TouchableOpacity>
                     ) : (
-                      <View className="px-3 py-1 bg-gray-200 rounded-full">
-                        <Text className="text-xs font-medium text-gray-500 capitalize">{item.status}</Text>
+                      <View className="px-3 py-1 bg-gray-200 rounded-full dark:bg-gray-600">
+                        <Text className="text-xs font-medium text-gray-500 dark:text-gray-300 capitalize">{item.status === 'completed' ? 'Completado' : item.status}</Text>
                       </View>
                     )}
                   </View>
                 )}
               />
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal para Postularse con Oferta */}
+      <Modal
+        visible={applyModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setApplyModalVisible(false)}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white dark:bg-gray-800 rounded-t-[50px] p-8">
+            <Text className="mb-6 text-2xl font-bold text-center text-gray-900 dark:text-white">Postularse a la Tarea</Text>
+            
+            <View className="mb-6">
+              <Text className="mb-2 ml-2 text-gray-500">Tu Oferta (UTP)</Text>
+              <TextInput
+                className="p-4 text-xl font-black bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
+                placeholder="0.00"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={bidAmount}
+                onChangeText={(val) => handlePriceChange(val, setBidAmount)}
+              />
+              <Text className="mt-2 ml-2 text-xs text-gray-400">Puedes ofrecer más o menos de la recompensa sugerida.</Text>
+            </View>
+
+            <View className="mb-6">
+              <Text className="mb-2 ml-2 text-gray-500">Comentario (opcional)</Text>
+              <TextInput
+                className="p-4 h-24 bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
+                placeholder="¿Por qué eres el ideal?"
+                placeholderTextColor="#9ca3af"
+                multiline
+                textAlignVertical="top"
+                value={applyComment}
+                onChangeText={setApplyComment}
+              />
+            </View>
+
+            <View className="flex-row mt-4">
+              <TouchableOpacity 
+                onPress={() => setApplyModalVisible(false)}
+                className="flex-1 justify-center items-center mr-2 h-14 bg-gray-100 rounded-2xl dark:bg-gray-700"
+              >
+                <Text className="font-bold text-gray-600 dark:text-gray-300">Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={handleApply}
+                disabled={isApplying}
+                className="flex-1 justify-center items-center ml-2 h-14 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30"
+              >
+                {isApplying ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-lg font-bold text-white">Enviar Oferta</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
