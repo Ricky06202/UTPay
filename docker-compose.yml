@@ -9,13 +9,13 @@ services:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
       - --rpc-http-enabled
-      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
       - --rpc-http-host=0.0.0.0
       - --rpc-ws-enabled
-      - --rpc-ws-api=ETH,NET,IBFT,WEB3
+      - --rpc-ws-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --rpc-ws-port=8546
       - --rpc-ws-host=0.0.0.0
       - --p2p-port=30303
@@ -38,7 +38,7 @@ services:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
       - --rpc-http-enabled
-      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
@@ -61,7 +61,7 @@ services:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
       - --rpc-http-enabled
-      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
@@ -78,13 +78,13 @@ services:
     image: hyperledger/besu:latest
     container_name: utpay-node-4
     volumes:
-      - ./blockchain/networkFiles/keys/0x57898f715d90bf0c992c0dfa74d6e157b9819bed:/var/lib/besu/key
+      - ./blockchain/networkFiles/keys/0x73836d542387163866236b231a41852445e999c0:/var/lib/besu/key
       - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
     command:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
       - --rpc-http-enabled
-      - --rpc-http-api=ETH,NET,IBFT,WEB3
+      - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
@@ -97,18 +97,67 @@ services:
     depends_on:
       - node1
 
-  explorer:
-    image: alethio/ethereum-lite-explorer:latest
-    container_name: utpay-explorer
+  blockscout:
+    image: blockscout/blockscout:6.2.1
+    container_name: utpay-blockscout
     restart: always
-    ports:
-      - "4000:80"
+    command: sh -c "bin/blockscout eval 'Explorer.ReleaseTasks.create_and_migrate()' && bin/blockscout start"
     environment:
-      - APP_NODE_URL=http://node1:8545
+      - PORT=4000
+      - NETWORK=UTPay
+      - SUBNETWORK=Private
+      - COIN=UTP
+      - ETHEREUM_JSONRPC_VARIANT=besu
+      - ETHEREUM_JSONRPC_HTTP_URL=http://node1:8545
+      - ETHEREUM_JSONRPC_WS_URL=ws://node1:8546
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/blockscout?ssl=false
+      - REDIS_URL=redis://redis:6379/0
+      - INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER=true
+      - INDEXER_DISABLE_BLOCK_REWARD_FETCHER=true
+      - INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER=true
+      - INDEXER_DISABLE_COIN_BALANCE_FETCHER=true
+      - INDEXER_DISABLE_BENEFICIARIES_FETCHER=true
+      - DISABLE_EXCHANGE_RATES=true
+      - SECRET_KEY_BASE=56eb02058b7311b0dc400e475c015792440221ccc0c0223101818d6bc3d2d03d27462bcbd99f9449bc27891c7848332947254502802202022020220202202022
+      - ECTO_USE_SSL=false
+      - CHAIN_ID=2026
+      - SHOW_PRICE_CHART=false
+      - SHOW_TESTNET_LABEL=true
+      - LOGO=/images/blockscout_logo.svg
+      - COIN_NAME=UTPay
+      - COIN_SYMBOL=UTP
+    ports:
+      - "4000:4000"
     networks:
       - utpay_net
     depends_on:
       - node1
+      - db
+      - redis
+
+  db:
+    image: postgres:15
+    container_name: utpay-db
+    restart: always
+    command: postgres -c 'max_connections=200'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=blockscout
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - utpay_net
+
+  redis:
+    image: redis:7
+    container_name: utpay-redis
+    restart: always
+    networks:
+      - utpay_net
 
 networks:
   utpay_net:

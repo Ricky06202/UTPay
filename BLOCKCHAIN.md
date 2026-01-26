@@ -53,18 +53,19 @@ Cuando los 4 nodos estén corriendo, el objetivo es que logren el **quórum**.
 ## 4. Transparencia: El Explorador de Bloques
 
 Para mantener la confianza de la comunidad, instalaremos un **Block Explorer** (ventana de cristal).
-*   **Herramienta**: [BlockScout](https://www.blockscout.com/) o [Alethio Lite Explorer](https://github.com/PegaSysEng/alethio-adapter).
+*   **Herramienta**: [BlockScout](https://www.blockscout.com/)
 *   **Resultado**: Una página web interna (`explorer.utpay.pa`) donde cualquier estudiante puede ver:
     > "La billetera `0xABC...` envió 10 UTPay a `Cafetería_Edificio3` el 25/01/2026 a las 10:30 AM".
 
 ---
 
 ## 5. Próximos Pasos para la API de la UTP 
- 
+
 Una vez la red esté estable: 
-1.  **API Bridge**: Crearemos una capa en la API actual (Node.js) que use `ethers.js` para firmar transacciones. 
-2.  **Smart Contracts**: Desplegaremos el contrato `UTPayCoin.sol` (ERC-20) en nuestra red privada. 
-3.  **SDK para Estudiantes**: Permitiremos que otros estudiantes desarrollen sus propios productos (ej: apps de delivery interno) conectándose a nuestra blockchain. 
+1.  **Suministro Inicial**: Hemos pre-asignado **1,000,000,000 UTP** (1 Billón) en la cuenta principal para asegurar liquidez en todo el campus.
+2.  **API Bridge**: Crearemos una capa en la API actual (Node.js) que use `ethers.js` para firmar transacciones. 
+3.  **Smart Contracts**: Desplegaremos el contrato `UTPayCoin.sol` (ERC-20) en nuestra red privada. 
+4.  **SDK para Estudiantes**: Permitiremos que otros estudiantes desarrollen sus propios productos (ej: apps de delivery interno) conectándose a nuestra blockchain. 
  
  --- 
  *Este documento es la hoja de ruta para la descentralización de UTPay.*
