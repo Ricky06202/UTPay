@@ -34,9 +34,10 @@ export default function ExploreScreen() {
   }, [user?.id]);
 
   const fetchFullHistory = async () => {
+    if (!user?.walletAddress) return;
     try {
       setIsLoading(true);
-      const response = await fetch(`${API_URL}/transactions/history/${user?.id}`);
+      const response = await fetch(`${API_URL}/transactions/history/${user.id}/${user.walletAddress}`);
       const data = await response.json();
       if (data.success) {
         setHistory(data.history);

@@ -71,9 +71,16 @@ export default function HomeScreen() {
   const [isImporting, setIsImporting] = useState(false);
 
   const fetchBlockchainBalance = async () => {
-    if (!user?.walletAddress) return;
-    const balance = await getUTPBalance(user.walletAddress);
-    setBlockchainBalance(balance);
+    if (!user?.walletAddress) {
+      console.log('No wallet address available for balance fetch');
+      return;
+    }
+    try {
+      const balance = await getUTPBalance(user.walletAddress);
+      setBlockchainBalance(balance);
+    } catch (error) {
+      console.error('Error fetching balance from blockchain:', error);
+    }
   };
 
   useEffect(() => {
@@ -119,9 +126,10 @@ export default function HomeScreen() {
   };
 
   const fetchHistory = async () => {
+    if (!user?.walletAddress) return;
     try {
       setIsLoadingHistory(true);
-      const response = await fetch(`${API_URL}/transactions/history/${user?.id}`);
+      const response = await fetch(`${API_URL}/transactions/history/${user.id}/${user.walletAddress}`);
       const data = await response.json();
       if (data.success) {
         setHistory(data.history.slice(0, 5)); // Solo los últimos 5 para el dashboard
@@ -262,19 +270,11 @@ export default function HomeScreen() {
         setScannedAddress(data);
         setIsScanResultModalVisible(true);
         
-        // Intentar buscar el usuario para mostrar su nombre
-        try {
-          const response = await fetch(`${API_URL}/users/verify-address/${data}`);
-          const result = await response.json();
-          if (result.success && result.user) {
-            setScannedUser(result.user);
-          } else {
-            setScannedUser(null);
-          }
-        } catch (e) {
-          console.error('Error fetching user info:', e);
-          setScannedUser(null);
-        }
+    // Intentar buscar el usuario por email (ya que no tenemos dirección en DB)
+    // Para simplificar, en este caso el usuario deberá ingresar el email si el QR no es reconocido
+    setScannedAddress(data);
+    setIsScanResultModalVisible(true);
+    setScannedUser(null); // No podemos buscar por dirección en el servidor ahora
       }
     } else {
       setFeedback({
@@ -478,7 +478,7 @@ export default function HomeScreen() {
         throw new Error('Error al firmar transacción: ' + (blockchainError.message || 'Error desconocido'));
       }
 
-      // 2. Notificar al backend para actualizar la base de datos y el historial
+      // 2. Notificar al backend para registro en el historial (opcional en Web3 pura, pero útil aquí)
       const response = await fetch(`${API_URL}/transactions/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -508,10 +508,10 @@ export default function HomeScreen() {
         setVerificationStep('input');
         
         fetchHistory();
-        refreshUser();
+        // El refreshUser ya no es necesario para el balance ya que se jala de la blockchain
         fetchBlockchainBalance();
       } else {
-        throw new Error(data.message || 'Error al procesar el envío');
+        throw new Error(data.message || 'Error al registrar el envío');
       }
     } catch (err: any) {
       setFeedback({
@@ -594,7 +594,7 @@ export default function HomeScreen() {
                   <View className="flex-row items-center mb-2">
                      <UTPSymbol size={40} color="white" containerStyle={{ marginRight: 12 }} />
                      <Text className="text-5xl font-bold text-white">
-                       {blockchainBalance ? parseFloat(blockchainBalance).toFixed(2) : (user?.balance?.toFixed(2) || '0.00')}
+                       {blockchainBalance ? parseFloat(blockchainBalance).toFixed(2) : '0.00'}
                      </Text>
                    </View>
                   {blockchainBalance && (

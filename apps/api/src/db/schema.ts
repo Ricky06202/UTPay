@@ -6,18 +6,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   password: text("password").notNull(),
-  walletAddress: text("wallet_address"),
-  // privateKey y seedPhrase eliminados para billetera no-custodia (Real BTC experience)
-  balance: real("balance").default(0.0),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
-});
-
-export const transactions = sqliteTable("transactions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  senderId: integer("sender_id").notNull().references(() => users.id),
-  receiverId: integer("receiver_id").notNull().references(() => users.id),
-  amount: real("amount").notNull(),
-  description: text("description"),
+  // walletAddress y balance eliminados para ser 100% Web3 (se obtienen de la blockchain)
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 
@@ -29,10 +18,10 @@ export const missionCategories = sqliteTable("mission_categories", {
 
 export const missions = sqliteTable("missions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  creatorId: integer("creator_id").notNull().references(() => users.id),
+  creatorId: integer("creator_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text("title").notNull(),
   description: text("description").notNull(),
-  categoryId: integer("category_id").notNull().references(() => missionCategories.id),
+  categoryId: integer("category_id").notNull().references(() => missionCategories.id, { onDelete: 'cascade' }),
   reward: real("reward").notNull(),
   whatsapp: text("whatsapp"),
   status: text("status").default('open'), // open, assigned, completed, cancelled
@@ -51,7 +40,7 @@ export const missionApplications = sqliteTable("mission_applications", {
 
 export const contacts = sqliteTable("contacts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   contactName: text("contact_name").notNull(),
   walletAddress: text("wallet_address").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),

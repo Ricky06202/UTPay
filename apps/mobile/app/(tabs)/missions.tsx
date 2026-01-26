@@ -167,11 +167,10 @@ export default function MissionsScreen() {
       return;
     }
 
-    if (!editingTaskId && rewardNum > (user?.balance || 0)) {
-      showAlert('Error', 'Saldo insuficiente para crear esta tarea', 'error');
-      return;
-    }
-
+    // NOTA: La validación de saldo para misiones ahora debe hacerse contra la blockchain.
+    // En esta versión simplificada, permitimos que pase al servidor,
+    // donde se registrará la intención de la misión.
+    
     try {
       setIsCreating(true);
       const taskData = {

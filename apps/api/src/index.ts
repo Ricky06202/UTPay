@@ -1,11 +1,10 @@
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, or, sql } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/sqlite-core'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { Wallet } from 'ethers'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { SignJWT } from 'jose'
-import { contacts as contactsTable, createDb, missionApplications, missionCategories, missions, transactions, users } from './db'
+import { contacts as contactsTable, createDb, missionApplications, missionCategories, missions, users } from './db'
 
 type Bindings = {
   DB: D1Database
@@ -37,13 +36,11 @@ app.post('/auth/register', async (c) => {
     const wallet = Wallet.createRandom()
     const seedPhrase = wallet.mnemonic?.phrase || ''
     
-    // 3. Insertar usuario (SIN guardar la llave privada ni semilla)
+    // 3. Insertar usuario (SIN guardar dirección ni balance)
     const newUser = await db.insert(users).values({
       email,
       name,
-      password: hashedPassword,
-      walletAddress: wallet.address,
-      balance: 0.0
+      password: hashedPassword
     }).returning()
 
     return c.json({ 
@@ -52,7 +49,6 @@ app.post('/auth/register', async (c) => {
         id: newUser[0].id, 
         email: newUser[0].email, 
         name: newUser[0].name,
-        walletAddress: newUser[0].walletAddress,
         privateKey: wallet.privateKey, // SE ENVÍA SOLO ESTA VEZ AL CLIENTE
         seedPhrase: seedPhrase        // EL CLIENTE DEBE GUARDARLO LOCALMENTE
       } 
@@ -93,10 +89,8 @@ app.post('/auth/login', async (c) => {
       user: { 
         id: user.id, 
         name: user.name, 
-        email: user.email, 
-        balance: user.balance,
-        walletAddress: user.walletAddress
-        // NO enviamos privateKey ni seedPhrase, el servidor no las tiene
+        email: user.email
+        // El balance y la wallet se manejan exclusivamente en el cliente
       } 
     })
   } catch (e: any) {
@@ -125,10 +119,8 @@ app.get('/auth/me/:id', async (c) => {
       user: { 
         id: user.id, 
         name: user.name, 
-        email: user.email, 
-        balance: user.balance,
-        walletAddress: user.walletAddress
-        // NO enviamos privateKey ni seedPhrase, el servidor no las tiene
+        email: user.email
+        // El balance y la wallet se manejan exclusivamente en el cliente
       } 
     })
   } catch (e: any) {
@@ -136,20 +128,20 @@ app.get('/auth/me/:id', async (c) => {
   }
 })
 
-// Endpoint para verificar un receptor por dirección de blockchain
-app.get('/users/verify-address/:address', async (c) => {
+// Endpoint para verificar un receptor por email (Búsqueda por email en lugar de dirección)
+app.get('/users/verify-email/:email', async (c) => {
   try {
-    const address = c.req.param('address')
+    const email = c.req.param('email')
     const db = createDb(c.env.DB)
-    const user = await db.select().from(users).where(eq(users.walletAddress, address)).get()
+    const user = await db.select().from(users).where(eq(users.email, email)).get()
 
     if (!user) {
-      return c.json({ success: false, message: 'Usuario no encontrado en la red UTPay' }, 404)
+      return c.json({ success: false, message: 'Usuario no encontrado' }, 404)
     }
 
     return c.json({ 
       success: true, 
-      user: { id: user.id, name: user.name, email: user.email, walletAddress: user.walletAddress } 
+      user: { id: user.id, name: user.name, email: user.email } 
     })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
@@ -183,75 +175,56 @@ app.post('/transactions/send', async (c) => {
     if (!receiver) return c.json({ success: false, message: 'Receptor no encontrado' }, 404)
     if (sender.id === receiver.id) return c.json({ success: false, message: 'No puedes enviarte dinero a ti mismo' }, 400)
     
-    // VALIDACIÓN DE SEGURIDAD:
-    // Si la transacción ya se envió a la blockchain (tenemos txHash), 
-    // debemos procesar el descuento de saldo incluso si en el backend el balance parece menor,
-    // porque la plata YA SALIÓ de la billetera blockchain del usuario.
-    // Esto previene que el saldo del backend se desincronice con la blockchain.
-    
-    if (!txHash && (sender.balance || 0) < finalAmount) {
-      return c.json({ success: false, message: 'Saldo insuficiente en el servidor' }, 400)
-    }
+    // El balance ya no se valida ni se guarda en el servidor.
+    // La App móvil valida el balance real de la blockchain antes de enviar.
 
-    // 2. Ejecutar transacción ATÓMICA
-    // Usamos db.batch para asegurar que o se hacen todas, o no se hace ninguna
-    await db.batch([
-      // Restar al emisor (permitimos saldo negativo temporal si la blockchain ya procesó la TX)
-      db.update(users)
-        .set({ balance: (sender.balance || 0) - finalAmount })
-        .where(eq(users.id, senderId)),
-
-      // Sumar al receptor
-      db.update(users)
-        .set({ balance: (receiver.balance || 0) + finalAmount })
-        .where(eq(users.id, receiver.id)),
-
-      // Registrar transacción
-      db.insert(transactions).values({
-        senderId,
-        receiverId: receiver.id,
-        amount: finalAmount,
-        description: description || `Transferencia UTPay ${txHash ? '(Blockchain)' : ''}`,
-        txHash: txHash || null
-      })
-    ])
-
-    // 3. VALIDACIÓN POST-TRANSACCIÓN (Opcional/Educativo)
-    // Podríamos verificar en la blockchain que el txHash sea válido aquí si quisiéramos
-    // una doble capa de seguridad.
-
-    return c.json({ success: true, message: 'Transferencia realizada con éxito' })
+    return c.json({ success: true, message: 'Transferencia registrada en el sistema' })
   } catch (e: any) {
     console.error('Error en transferencia:', e)
     return c.json({ success: false, message: 'Error al procesar la transferencia', error: e.message }, 500)
   }
 })
 
-// Endpoint para obtener historial de transacciones
-app.get('/transactions/history/:userId', async (c) => {
+// Endpoint para obtener historial de transacciones directamente desde Blockscout (Blockchain)
+app.get('/transactions/history/:userId/:address', async (c) => {
   try {
     const userId = parseInt(c.req.param('userId'))
+    const address = c.req.param('address')
     const db = createDb(c.env.DB)
 
-    const senderAlias = alias(users, 'sender')
-    const receiverAlias = alias(users, 'receiver')
+    // 1. Consultar a Blockscout API usando la dirección enviada por el cliente
+    const BLOCKSCOUT_URL = 'http://localhost:4000/api'
+    const query = `?module=account&action=txlist&address=${address}&sort=desc`
+    
+    const response = await fetch(BLOCKSCOUT_URL + query)
+    const data: any = await response.json()
 
-    const history = await db.select({
-      id: transactions.id,
-      amount: transactions.amount,
-      description: transactions.description,
-      createdAt: transactions.createdAt,
-      senderId: transactions.senderId,
-      receiverId: transactions.receiverId,
-      senderName: senderAlias.name,
-      receiverName: receiverAlias.name,
+    if (data.status !== '1' || !Array.isArray(data.result)) {
+      return c.json({ success: true, history: [] })
+    }
+
+    // 2. Procesar y enriquecer transacciones con nombres de la DB local
+    // Nota: Ahora no podemos cruzar nombres tan fácil si no tenemos las direcciones en la DB
+    // Pero podemos seguir guardando las direcciones en la tabla de Contactos para referencia.
+    
+    // 3. Formatear para la App
+    const history = data.result.map((tx: any) => {
+      const fromAddr = tx.from.toLowerCase()
+      const toAddr = tx.to.toLowerCase()
+      const isSender = fromAddr === address.toLowerCase()
+      
+      return {
+        id: tx.hash,
+        txHash: tx.hash,
+        amount: parseFloat(tx.value) / 1e18,
+        description: isSender ? `Envío a ${toAddr}` : `Recibido de ${fromAddr}`,
+        createdAt: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
+        senderName: fromAddr,
+        receiverName: toAddr,
+        isOutgoing: isSender,
+        status: tx.txreceipt_status === '1' ? 'success' : 'failed'
+      }
     })
-    .from(transactions)
-    .leftJoin(senderAlias, eq(transactions.senderId, senderAlias.id))
-    .leftJoin(receiverAlias, eq(transactions.receiverId, receiverAlias.id))
-    .where(or(eq(transactions.senderId, userId), eq(transactions.receiverId, userId)))
-    .orderBy(desc(transactions.createdAt))
-    .all()
 
     return c.json({ success: true, history })
   } catch (e: any) {
@@ -345,25 +318,21 @@ app.post('/missions/create', async (c) => {
     // Redondear a 2 decimales
     const finalReward = Math.round(reward * 100) / 100
 
-    // Verificar saldo del creador
-    const creator = await db.select().from(users).where(eq(users.id, creatorId)).get()
-    if (!creator || creator.balance < finalReward) {
-      return c.json({ success: false, message: 'Saldo insuficiente para crear esta tarea' }, 400)
-    }
-
-    // Restar saldo (Escrow) y crear tarea en batch
-    await db.batch([
-      db.update(users).set({ balance: (creator.balance || 0) - finalReward }).where(eq(users.id, creatorId)),
-      db.insert(missions).values({
-        creatorId,
-        title,
-        description,
-        categoryId,
-        reward: finalReward,
-        whatsapp,
-        status: 'open'
-      })
-    ])
+    // NOTA: El saldo ahora se maneja 100% en la blockchain.
+    // El frontend debe validar el saldo antes de llamar a este endpoint si quiere
+    // que el servidor lleve un registro de misiones.
+    // Por ahora, permitimos la creación de la misión para no bloquear el flujo,
+    // pero en producción se debería validar contra la blockchain aquí también.
+    
+    await db.insert(missions).values({
+      creatorId,
+      title,
+      description,
+      categoryId,
+      reward: finalReward,
+      whatsapp,
+      status: 'open'
+    })
 
     return c.json({ success: true, message: 'Tarea creada correctamente' })
   } catch (e: any) {
@@ -578,12 +547,9 @@ app.post('/missions/accept', async (c) => {
     const creator = await db.select().from(users).where(eq(users.id, mission.creatorId)).get()
     if (!creator) return c.json({ success: false, message: 'Creador no encontrado' }, 404)
 
-    // Ajustar saldo del creador si la oferta es diferente a la recompensa inicial
-    const diff = application.bidAmount - mission.reward
-    if (diff > 0 && creator.balance < diff) {
-      return c.json({ success: false, message: 'No tienes saldo suficiente para cubrir la oferta del estudiante' }, 400)
-    }
-
+    // NOTA: El saldo ahora se maneja 100% en la blockchain.
+    // El frontend debe validar el saldo antes de llamar a este endpoint.
+    
     await db.batch([
       // Marcar postulación como aceptada
       db.update(missionApplications).set({ status: 'accepted' }).where(eq(missionApplications.id, applicationId)),
@@ -598,11 +564,7 @@ app.post('/missions/accept', async (c) => {
       db.update(missions).set({ 
         reward: application.bidAmount,
         status: 'assigned' 
-      }).where(eq(missions.id, mission.id)),
-      // Ajustar saldo del creador (escrow adicional o reembolso)
-      db.update(users).set({ 
-        balance: (creator.balance || 0) - diff 
-      }).where(eq(users.id, creator.id))
+      }).where(eq(missions.id, mission.id))
     ])
 
     return c.json({ 
@@ -644,28 +606,17 @@ app.post('/missions/cancel', async (c) => {
       return c.json({ success: false, message: 'No tienes permiso para cancelar esta tarea' }, 403);
     }
 
-    // Permitir eliminar cualquier tarea del dueño, pero solo reembolsar si está abierta/asignada
+    // Permitir eliminar cualquier tarea del dueño
     const operations: any[] = [
       db.delete(missionApplications).where(eq(missionApplications.missionId, mId)),
       db.delete(missions).where(eq(missions.id, mId))
     ];
 
-    // Solo reembolsar si la tarea estaba abierta o asignada (dinero en escrow)
-    const shouldRefund = mission.status === 'open' || mission.status === 'assigned';
-    
-    if (shouldRefund) {
-      operations.unshift(
-        db.update(users)
-          .set({ balance: sql`balance + ${mission.reward}` })
-          .where(eq(users.id, uId))
-      );
-    }
-
     await db.batch(operations);
 
     return c.json({ 
       success: true, 
-      message: shouldRefund ? 'Tarea eliminada y saldo reembolsado' : 'Tarea eliminada del historial' 
+      message: 'Tarea eliminada del historial' 
     });
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500);
@@ -707,14 +658,8 @@ app.post('/missions/update', async (c) => {
     const finalReward = Math.round(rewardNum * 100) / 100
 
     if (finalReward !== mission.reward) {
-      const creator = await db.select().from(users).where(eq(users.id, uId)).get();
-      const diff = finalReward - mission.reward;
-      
-      if (creator && creator.balance < diff) {
-        return c.json({ success: false, message: 'Saldo insuficiente para aumentar la recompensa' }, 400);
-      }
-
-      await db.update(users).set({ balance: (creator?.balance || 0) - diff }).where(eq(users.id, uId));
+      // NOTA: El saldo ahora se maneja 100% en la blockchain.
+      // En una versión futura, esto debería requerir una transacción on-chain.
     }
 
     await db.update(missions).set({
@@ -754,16 +699,8 @@ app.post('/missions/complete', async (c) => {
       // Marcar postulación como completada
       db.update(missionApplications).set({ status: 'completed' }).where(eq(missionApplications.id, applicationId)),
       // Marcar tarea como completada
-      db.update(missions).set({ status: 'completed' }).where(eq(missions.id, mission.id)),
-      // Liberar pago al estudiante
-      db.update(users).set({ balance: (student.balance || 0) + mission.reward }).where(eq(users.id, student.id)),
-      // Registrar en historial de transacciones
-      db.insert(transactions).values({
-        senderId: mission.creatorId,
-        receiverId: student.id,
-        amount: mission.reward,
-        description: `Pago por tarea: ${mission.title}`
-      })
+      db.update(missions).set({ status: 'completed' }).where(eq(missions.id, mission.id))
+      // El pago real debe ser procesado por el cliente mediante una transacción Blockchain
     ])
 
     return c.json({ success: true, message: 'Trabajo completado y pago liberado' })

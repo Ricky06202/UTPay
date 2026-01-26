@@ -1,4 +1,5 @@
 import { API_URL } from '@/constants/api';
+import { Wallet } from 'ethers';
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
@@ -7,7 +8,6 @@ type User = {
   id: number;
   email: string;
   name: string;
-  balance: number;
   walletAddress?: string;
   privateKey?: string;
   seedPhrase?: string;
@@ -25,8 +25,36 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Función auxiliar para enriquecer el usuario con su dirección generada localmente
+function enrichUserWithAddress(user: User | null): User | null {
+  if (!user) return null;
+  
+  // Si ya tiene dirección y llaves, no hacemos nada
+  if (user.walletAddress && user.privateKey) return user;
+
+  try {
+    // Si tiene frase o llave privada, podemos generar la dirección
+    if (user.seedPhrase) {
+      const wallet = Wallet.fromMnemonic(user.seedPhrase);
+      return { ...user, walletAddress: wallet.address, privateKey: wallet.privateKey };
+    } else if (user.privateKey) {
+      const wallet = new Wallet(user.privateKey);
+      return { ...user, walletAddress: wallet.address };
+    }
+  } catch (e) {
+    console.error('Error generating wallet address locally:', e);
+  }
+  
+  return user;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUserState] = useState<User | null>(null);
+  
+  // Wrapper para asegurar que siempre que seteamos el usuario, intentamos generar su dirección
+  const setUser = (newUser: User | null) => {
+    setUserState(enrichUserWithAddress(newUser));
+  };
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const appState = useRef(AppState.currentState);
