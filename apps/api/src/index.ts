@@ -5,7 +5,7 @@ import { Wallet } from 'ethers'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { SignJWT } from 'jose'
-import { contacts, createDb, missionApplications, missionCategories, missions, transactions, users } from './db'
+import { contacts as contactsTable, createDb, missionApplications, missionCategories, missions, transactions, users } from './db'
 
 type Bindings = {
   DB: D1Database
@@ -277,7 +277,7 @@ app.get('/contacts/:userId', async (c) => {
   try {
     const userId = parseInt(c.req.param('userId'))
     const db = createDb(c.env.DB)
-    const userContacts = await db.select().from(contacts).where(eq(contacts.userId, userId)).orderBy(desc(contacts.createdAt)).all()
+    const userContacts = await db.select().from(contactsTable).where(eq(contactsTable.userId, userId)).orderBy(desc(contactsTable.createdAt)).all()
     return c.json({ success: true, contacts: userContacts })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
@@ -291,15 +291,15 @@ app.post('/contacts', async (c) => {
     const db = createDb(c.env.DB)
     
     // Verificar si ya existe un contacto con esa dirección para ese usuario
-    const existing = await db.select().from(contacts)
-      .where(and(eq(contacts.userId, userId), eq(contacts.walletAddress, walletAddress)))
+    const existing = await db.select().from(contactsTable)
+      .where(and(eq(contactsTable.userId, userId), eq(contactsTable.walletAddress, walletAddress)))
       .get()
       
     if (existing) {
       return c.json({ success: false, message: 'Ya tienes este contacto guardado' }, 400)
     }
 
-    const newContact = await db.insert(contacts).values({
+    const newContact = await db.insert(contactsTable).values({
       userId,
       contactName,
       walletAddress
@@ -316,7 +316,7 @@ app.delete('/contacts/:id', async (c) => {
   try {
     const id = parseInt(c.req.param('id'))
     const db = createDb(c.env.DB)
-    await db.delete(contacts).where(eq(contacts.id, id))
+    await db.delete(contactsTable).where(eq(contactsTable.id, id))
     return c.json({ success: true, message: 'Contacto eliminado' })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)

@@ -1,6 +1,7 @@
 import { LogoutButton } from '@/components/LogoutButton';
 import { FeedbackModal } from '@/components/ui/FeedbackModal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { UTPSymbol } from '@/components/ui/UTPSymbol';
 import { API_URL } from '@/constants/api';
 import { getUTPBalance, getWallet } from '@/constants/blockchain';
 import { useAuth } from '@/context/auth';
@@ -10,13 +11,15 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const isWeb = Platform.OS === 'web';
 
 export default function HomeScreen() {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [backendStatus, setBackendStatus] = useState<'loading' | 'ok' | 'error'>('loading');
@@ -34,7 +37,7 @@ export default function HomeScreen() {
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
 
   // Estados para Libreta de Contactos
-  const [contacts, setContacts] = useState<any[]>([]);
+  const [contactsList, setContactsList] = useState<any[]>([]);
   const [isContactsModalVisible, setIsContactsModalVisible] = useState(false);
   const [isAddContactModalVisible, setIsAddContactModalVisible] = useState(false);
   const [newContactName, setNewContactName] = useState('');
@@ -135,8 +138,9 @@ export default function HomeScreen() {
     try {
       const response = await fetch(`${API_URL}/contacts/${user.id}`);
       const data = await response.json();
+      console.log('Contacts data received:', data.success, data.contacts?.length);
       if (data.success) {
-        setContacts(data.contacts);
+        setContactsList(data.contacts || []);
       }
     } catch (error) {
       console.error('Error fetching contacts:', error);
@@ -176,6 +180,7 @@ export default function HomeScreen() {
         })
       });
       const data = await response.json();
+      console.log('Add contact response:', data);
       if (data.success) {
         setFeedback({
           visible: true,
@@ -192,7 +197,7 @@ export default function HomeScreen() {
           visible: true,
           type: 'error',
           title: 'Error',
-          message: data.message || data.error || 'No se pudo agregar el contacto'
+          message: data.message || data.error || (typeof data === 'string' ? data : 'No se pudo agregar el contacto')
         });
       }
     } catch (error) {
@@ -533,7 +538,7 @@ export default function HomeScreen() {
 
   return (
     <View 
-      className="flex-1"
+      className="flex-1 bg-gray-50 dark:bg-gray-900"
       style={{ 
         paddingTop: insets.top,
         paddingLeft: insets.left,
@@ -545,10 +550,11 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ 
           paddingBottom: insets.bottom + 80,
-          alignItems: 'center'
+          alignItems: 'center',
+          width: '100%'
         }}
       >
-        <View className="px-6 w-full max-w-[1200px]">
+        <View className={`px-4 sm:px-6 w-full ${isDesktop ? 'max-w-5xl' : ''}`}>
           
           {/* Header */}
           <View className="flex-row justify-between items-center pt-2 pb-6">
@@ -576,20 +582,23 @@ export default function HomeScreen() {
           </View>
 
           {/* Main Content Layout */}
-          <View className={`flex-1 ${isWeb ? 'flex-row space-x-8' : 'flex-col'}`}>
+          <View className={`flex-1 ${isDesktop ? 'flex-row space-x-8 items-start' : 'flex-col'}`}>
             
             {/* Columna Izquierda: Saldo y Servicios */}
-            <View className={isWeb ? 'flex-[2]' : 'w-full'}>
+            <View className={isDesktop ? 'flex-[1.5]' : 'w-full'}>
               
-              <View className={`${isWeb ? 'flex-row mb-10 space-x-6' : 'flex-col'}`}>
+              <View className={`${isDesktop ? 'flex-row mb-10 space-x-6' : 'flex-col'}`}>
                 {/* Card de Saldo */}
-                <View className={`bg-blue-600 rounded-[40px] p-8 shadow-2xl shadow-blue-500/30 ${isWeb ? 'flex-1 mb-0' : 'mb-6'}`}>
-                  <Text className="mb-1 text-base font-medium text-blue-100">Saldo disponible</Text>
-                  <Text className="mb-2 text-5xl font-bold text-white">
-                    $ {blockchainBalance ? parseFloat(blockchainBalance).toFixed(2) : (user?.balance?.toFixed(2) || '0.00')}
-                  </Text>
+                <View className={`bg-purple-600 rounded-[40px] p-8 shadow-2xl shadow-purple-500/30 ${isDesktop ? 'flex-1 mb-0' : 'mb-6'} min-h-[220px]`}>
+                  <Text className="mb-1 text-base font-medium text-purple-100">Saldo disponible</Text>
+                  <View className="flex-row items-center mb-2">
+                     <UTPSymbol size={40} color="white" containerStyle={{ marginRight: 12 }} />
+                     <Text className="text-5xl font-bold text-white">
+                       {blockchainBalance ? parseFloat(blockchainBalance).toFixed(2) : (user?.balance?.toFixed(2) || '0.00')}
+                     </Text>
+                   </View>
                   {blockchainBalance && (
-                    <Text className="mb-6 text-xs font-medium text-blue-200/60">
+                    <Text className="mb-6 text-xs font-medium text-purple-200/60">
                       Sincronizado con Blockchain ⛓️
                     </Text>
                   )}
@@ -602,17 +611,17 @@ export default function HomeScreen() {
                       onPress={() => setIsSendModalVisible(true)}
                       className="flex-1 justify-center items-center h-12 bg-white rounded-xl shadow-sm"
                     >
-                      <Text className="font-bold text-blue-600">Enviar</Text>
+                      <Text className="font-bold text-purple-600">Enviar</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
 
                 {/* Acciones de PC (Solo se ven en Web al lado del saldo) */}
-                {isWeb && (
+                {isDesktop && (
                   <View className="flex-1 justify-between py-2">
                     <TouchableOpacity className="flex-row items-center p-6 bg-white rounded-3xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
-                      <View className="p-3 mr-4 bg-blue-50 rounded-2xl dark:bg-blue-900/20">
-                        <IconSymbol name="chevron.left.forwardslash.chevron.right" size={24} color="#2563eb" />
+                      <View className="p-3 mr-4 bg-purple-50 rounded-2xl dark:bg-purple-900/20">
+                        <IconSymbol name="chevron.left.forwardslash.chevron.right" size={24} color="#9333ea" />
                       </View>
                       <View>
                         <Text className="font-bold text-gray-800 dark:text-white">Ver Estadísticas</Text>
@@ -639,14 +648,14 @@ export default function HomeScreen() {
                   { name: 'Escanear QR', icon: 'qr.code', color: 'bg-purple-100 dark:bg-purple-900/30', iconColor: '#a855f7', action: handleOpenScanner },
                   { name: 'Tareas', icon: 'assignment', color: 'bg-green-100 dark:bg-green-900/30', iconColor: '#22c55e', action: () => router.push('/missions') },
                   { name: 'Transporte', icon: 'bus', color: 'bg-orange-100 dark:bg-orange-900/30', iconColor: '#f97316' },
-                  { name: 'Cafetería', icon: 'coffee', color: 'bg-blue-100 dark:bg-blue-900/30', iconColor: '#3b82f6' },
+                  { name: 'Cafetería', icon: 'coffee', color: 'bg-purple-100 dark:bg-purple-900/30', iconColor: '#9333ea' },
                   { name: 'Contactos', icon: 'person.2.fill', color: 'bg-red-100 dark:bg-red-900/30', iconColor: '#ef4444', action: () => setIsContactsModalVisible(true) },
                   { name: 'Mi QR', icon: 'account.circle', color: 'bg-gray-100 dark:bg-gray-800', iconColor: '#6b7280', action: () => setIsQRModalVisible(true) }
                 ].map((action, index) => (
                   <TouchableOpacity 
                     key={index} 
                     onPress={action.action}
-                    className={`${isWeb ? 'w-[23%]' : 'w-[48%]'} bg-white dark:bg-gray-800 p-6 rounded-[32px] mb-6 shadow-sm items-center justify-center h-40 border border-gray-50 dark:border-gray-700`}
+                    className={`${isDesktop ? 'w-[31%]' : 'w-[48%]'} bg-white dark:bg-gray-800 p-6 rounded-[32px] mb-6 shadow-sm items-center justify-center h-40 border border-gray-50 dark:border-gray-700`}
                   >
                     <View className={`${action.color} p-4 rounded-2xl mb-3`}>
                       <IconSymbol name={action.icon as any} size={32} color={action.iconColor} />
@@ -658,12 +667,12 @@ export default function HomeScreen() {
             </View>
 
             {/* Columna Derecha: Actividad (Solo en PC) */}
-            <View className={isWeb ? 'flex-1' : 'mt-10 w-full'}>
+            <View className={isDesktop ? 'flex-1' : 'mt-10 w-full'}>
               {/* Sección de Mi Billetera Blockchain */}
               <View className="p-6 mb-8 w-full bg-white rounded-3xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
                 <View className="flex-row items-center mb-6">
-                  <View className="p-2 mr-3 bg-blue-100 rounded-lg dark:bg-blue-900/30">
-                    <IconSymbol name="lock.fill" size={20} color="#2563eb" />
+                  <View className="p-2 mr-3 bg-purple-100 rounded-lg dark:bg-purple-900/30">
+                    <IconSymbol name="lock.fill" size={20} color="#9333ea" />
                   </View>
                   <Text className="text-xl font-bold text-gray-900 dark:text-white">Mi Billetera Blockchain</Text>
                 </View>
@@ -678,7 +687,7 @@ export default function HomeScreen() {
                       <TouchableOpacity 
                         style={{ 
                           padding: 10, 
-                          backgroundColor: 'rgba(37, 99, 235, 0.1)', 
+                          backgroundColor: 'rgba(147, 51, 234, 0.1)', 
                           borderRadius: 12 
                         }}
                         onPress={async () => {
@@ -698,7 +707,7 @@ export default function HomeScreen() {
                           }
                         }}
                       >
-                        <IconSymbol name="doc.on.doc" size={20} color="#2563eb" />
+                        <IconSymbol name="doc.on.doc" size={20} color="#9333ea" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -708,17 +717,17 @@ export default function HomeScreen() {
                     className={`p-4 rounded-2xl flex-row items-center border ${
                       user?.privateKey 
                         ? 'bg-green-50 dark:bg-green-900/10 border-green-100 dark:border-green-900/20' 
-                        : 'bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/20'
+                        : 'bg-purple-50 dark:bg-purple-900/10 border-purple-100 dark:border-purple-900/20'
                     }`}
                   >
-                    <View className={`p-2 mr-3 rounded-lg ${user?.privateKey ? 'bg-green-600' : 'bg-blue-600'}`}>
+                    <View className={`p-2 mr-3 rounded-lg ${user?.privateKey ? 'bg-green-600' : 'bg-purple-600'}`}>
                       <IconSymbol name={user?.privateKey ? 'checkmark.circle.fill' : 'key.fill'} size={16} color="white" />
                     </View>
                     <View className="flex-1">
-                      <Text className={`font-bold text-sm ${user?.privateKey ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                      <Text className={`font-bold text-sm ${user?.privateKey ? 'text-green-700 dark:text-green-300' : 'text-purple-700 dark:text-purple-300'}`}>
                         {user?.privateKey ? 'Billetera Vinculada' : 'Importar Frase Secreta'}
                       </Text>
-                      <Text className={`text-[10px] ${user?.privateKey ? 'text-green-600/60 dark:text-green-400/60' : 'text-blue-600/60 dark:text-blue-400/60'}`}>
+                      <Text className={`text-[10px] ${user?.privateKey ? 'text-green-600/60 dark:text-green-400/60' : 'text-purple-600/60 dark:text-purple-400/60'}`}>
                         {user?.privateKey ? 'Llave cargada y lista para firmar' : 'Para firmar transacciones localmente'}
                       </Text>
                     </View>
@@ -727,7 +736,7 @@ export default function HomeScreen() {
                         <Text className="text-[8px] font-bold text-green-700 dark:text-green-300 uppercase">Seguro</Text>
                       </View>
                     )}
-                    <IconSymbol name="chevron.right" size={16} color={user?.privateKey ? '#16a34a' : '#2563eb'} />
+                    <IconSymbol name="chevron.right" size={16} color={user?.privateKey ? '#16a34a' : '#9333ea'} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -735,7 +744,7 @@ export default function HomeScreen() {
                 <Text className="mb-6 text-xl font-bold text-gray-800 dark:text-white">Actividad Reciente</Text>
                 
                 {isLoadingHistory ? (
-                  <ActivityIndicator color="#2563eb" />
+                  <ActivityIndicator color="#9333ea" />
                 ) : history.length === 0 ? (
                   <Text className="py-4 text-center text-gray-500">No hay transacciones aún</Text>
                 ) : (
@@ -774,11 +783,12 @@ export default function HomeScreen() {
                             </Text>
                           </View>
                         </View>
-                        <View className="flex-shrink-0 ml-2">
-                          <Text className={`font-bold ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
-                            {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
-                          </Text>
-                        </View>
+                        <View className="flex-shrink-0 ml-2 flex-row items-center">
+                           <UTPSymbol size={14} color={!isExpense ? '#22c55e' : '#ef4444'} containerStyle={{ marginRight: 4 }} />
+                           <Text className={`font-bold ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
+                             {!isExpense ? '+' : '-'}{item.amount.toFixed(2)}
+                           </Text>
+                         </View>
                       </TouchableOpacity>
                     );
                   })
@@ -788,7 +798,7 @@ export default function HomeScreen() {
                   onPress={() => router.push('/explore')}
                   className="items-center py-4 mt-4 border-t border-gray-50 dark:border-gray-700"
                 >
-                  <Text className="font-bold text-blue-600">Ver todo el historial</Text>
+                  <Text className="font-bold text-purple-600">Ver todo el historial</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -803,8 +813,8 @@ export default function HomeScreen() {
           visible={isSendModalVisible}
           onRequestClose={handleCloseSendModal}
         >
-          <View className="flex-1 justify-end items-center px-0 bg-black/50">
-            <View className="bg-white dark:bg-gray-800 w-full max-w-md p-8 rounded-t-[50px] shadow-2xl">
+          <View className={`flex-1 ${isDesktop ? 'justify-center' : 'justify-end'} items-center px-0 bg-black/50`}>
+            <View className={`bg-white dark:bg-gray-800 w-full max-w-md p-8 ${isDesktop ? 'rounded-[40px]' : 'rounded-t-[50px]'} shadow-2xl`}>
               
               {verificationStep === 'input' ? (
                 <>
@@ -826,15 +836,15 @@ export default function HomeScreen() {
                         setIsSendModalVisible(false);
                         setIsContactsModalVisible(true);
                       }}
-                      className="p-2 ml-2 bg-blue-100 rounded-lg dark:bg-blue-900/30"
+                      className="p-2 ml-2 bg-purple-100 rounded-lg dark:bg-purple-900/30"
                     >
-                      <IconSymbol name="person.2.fill" size={20} color="#2563eb" />
+                      <IconSymbol name="person.2.fill" size={20} color="#9333ea" />
                     </TouchableOpacity>
                   </View>
 
                   <Text className="mb-2 font-bold text-gray-700 dark:text-gray-300">Monto a enviar (UTP)</Text>
                   <TextInput
-                    className="p-4 mb-4 text-2xl font-black text-blue-600 bg-gray-50 rounded-2xl dark:bg-gray-700"
+                    className="p-4 mb-4 text-2xl font-black text-purple-600 bg-gray-50 rounded-2xl dark:bg-gray-700"
                     placeholder="0.00"
                     placeholderTextColor="#9ca3af"
                     keyboardType="numeric"
@@ -863,7 +873,7 @@ export default function HomeScreen() {
                     <TouchableOpacity 
                       onPress={() => handleVerifyRecipient()}
                       disabled={isVerifying}
-                      className="justify-center items-center h-14 bg-blue-600 rounded-2xl shadow-lg flex-2 shadow-blue-500/30"
+                      className="justify-center items-center h-14 bg-purple-600 rounded-2xl shadow-lg flex-2 shadow-purple-500/30"
                     >
                       {isVerifying ? (
                         <ActivityIndicator color="white" />
@@ -876,8 +886,8 @@ export default function HomeScreen() {
               ) : (
                 <>
                   <View className="items-center mb-6">
-                    <View className="p-4 mb-4 bg-blue-50 rounded-full dark:bg-blue-900/20">
-                      <IconSymbol name="paperplane.fill" size={32} color="#2563eb" />
+                    <View className="p-4 mb-4 bg-purple-50 rounded-full dark:bg-purple-900/20">
+                      <IconSymbol name="paperplane.fill" size={32} color="#9333ea" />
                     </View>
                     <Text className="text-2xl font-bold text-center text-gray-900 dark:text-white">Confirmar Envío</Text>
                   </View>
@@ -888,7 +898,7 @@ export default function HomeScreen() {
                       <View className="items-end">
                         <Text className="text-lg font-bold text-gray-900 dark:text-white">{recipientData?.name}</Text>
                         <Text className="mb-1 text-xs text-gray-500 dark:text-gray-400">{recipientData?.email}</Text>
-                        <Text className="text-[10px] font-mono text-blue-600 truncate w-32" numberOfLines={1}>{receiverUTPId}</Text>
+                        <Text className="text-[10px] font-mono text-purple-600 truncate w-32" numberOfLines={1}>{receiverUTPId}</Text>
                       </View>
                     </View>
 
@@ -901,7 +911,10 @@ export default function HomeScreen() {
                     
                     <View className="flex-row justify-between items-center">
                       <Text className="text-gray-500 dark:text-gray-400">Monto total:</Text>
-                      <Text className="text-3xl font-black text-gray-900 dark:text-white">$ {parseFloat(amount).toFixed(2)}</Text>
+                      <View className="flex-row items-center">
+                        <UTPSymbol size={20} color="#9333ea" containerStyle={{ marginRight: 6 }} />
+                        <Text className="text-3xl font-black text-gray-900 dark:text-white">{parseFloat(amount).toFixed(2)}</Text>
+                      </View>
                     </View>
                   </View>
 
@@ -938,8 +951,8 @@ export default function HomeScreen() {
           visible={isDetailModalVisible}
           onRequestClose={() => setIsDetailModalVisible(false)}
         >
-          <View className="flex-1 justify-end bg-black/50">
-            <View className="bg-white dark:bg-gray-800 p-8 rounded-t-[50px] shadow-2xl">
+          <View className={`flex-1 ${isDesktop ? 'justify-center' : 'justify-end'} items-center bg-black/50`}>
+            <View className={`bg-white dark:bg-gray-800 p-8 ${isDesktop ? 'rounded-[40px] max-w-md' : 'rounded-t-[50px]'} w-full shadow-2xl`}>
               <View className="items-center mb-6">
                 <View className="w-12 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mb-6" />
                 <View className={`p-4 mb-4 rounded-full ${selectedTransaction?.senderId === user?.id ? 'bg-red-50 dark:bg-red-900/20' : 'bg-green-50 dark:bg-green-900/20'}`}>
@@ -949,9 +962,11 @@ export default function HomeScreen() {
                     color={selectedTransaction?.senderId === user?.id ? '#ef4444' : '#22c55e'} 
                   />
                 </View>
-                <Text className="text-3xl font-black text-gray-900 dark:text-white">
-                  {selectedTransaction?.senderId === user?.id ? '-' : '+'}${selectedTransaction?.amount?.toFixed(2)} UTP
-                </Text>
+                <Text className="text-3xl font-black text-gray-900 dark:text-white flex-row items-center">
+                   {selectedTransaction?.senderId === user?.id ? '-' : '+'}
+                   <UTPSymbol size={24} color={selectedTransaction?.senderId === user?.id ? '#ef4444' : '#22c55e'} containerStyle={{ marginHorizontal: 4 }} />
+                   {selectedTransaction?.amount?.toFixed(2)}
+                 </Text>
                 <Text className="text-gray-500 dark:text-gray-400 mt-1">
                   {selectedTransaction ? new Date(selectedTransaction.createdAt).toLocaleString() : ''}
                 </Text>
@@ -985,7 +1000,7 @@ export default function HomeScreen() {
                 {selectedTransaction?.txHash && (
                   <View className="mt-2 pt-4 border-t border-gray-100 dark:border-gray-600">
                     <Text className="text-gray-500 mb-1">Hash de Transacción (Blockchain)</Text>
-                    <Text className="text-[10px] font-mono text-blue-600 dark:text-blue-400">
+                    <Text className="text-[10px] font-mono text-purple-600 dark:text-purple-400">
                       {selectedTransaction.txHash}
                     </Text>
                   </View>
@@ -1002,17 +1017,17 @@ export default function HomeScreen() {
           </View>
         </Modal>
 
-        {/* Modal para mostrar mi QR */}
+        {/* Modal para Mostrar Mi QR */}
         <Modal
           animationType="fade"
           transparent={true}
           visible={isQRModalVisible}
           onRequestClose={() => setIsQRModalVisible(false)}
         >
-          <View className="flex-1 justify-center items-center px-6 bg-black/50">
-            <View className="bg-white dark:bg-gray-800 w-full max-w-sm p-10 rounded-[50px] items-center shadow-2xl">
-              <View className="p-4 mb-6 bg-blue-50 rounded-3xl dark:bg-blue-900/20">
-                <IconSymbol name="qr.code" size={32} color="#2563eb" />
+          <View className={`flex-1 justify-center items-center px-6 ${isDesktop ? 'bg-black/40' : 'bg-black/50'}`}>
+            <View className={`bg-white dark:bg-gray-800 w-full ${isDesktop ? 'max-w-sm' : ''} p-10 rounded-[50px] items-center shadow-2xl`}>
+              <View className="p-4 mb-6 bg-purple-50 rounded-3xl dark:bg-purple-900/20">
+                <IconSymbol name="qr.code" size={32} color="#9333ea" />
               </View>
               
               <Text className="mb-2 text-2xl font-bold text-gray-900 dark:text-white">Mi Código QR</Text>
@@ -1028,17 +1043,17 @@ export default function HomeScreen() {
               </View>
               
               <View className="px-6 py-3 mt-8 bg-gray-50 rounded-full dark:bg-gray-700">
-                <Text className="text-[10px] font-mono text-blue-600 dark:text-blue-400">
+                <Text className="text-[10px] font-mono text-purple-600 dark:text-purple-400">
                   {user?.walletAddress || 'Sin dirección'}
                 </Text>
               </View>
               
               <TouchableOpacity 
-                onPress={() => setIsQRModalVisible(false)}
-                className="justify-center items-center mt-10 w-full h-14 bg-gray-900 rounded-2xl dark:bg-gray-700"
-              >
-                <Text className="text-lg font-bold text-white">Cerrar</Text>
-              </TouchableOpacity>
+                  onPress={() => setIsQRModalVisible(false)}
+                  className="justify-center items-center w-full h-14 bg-purple-600 rounded-2xl shadow-sm"
+                >
+                  <Text className="text-lg font-bold text-white">Cerrar</Text>
+                </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -1077,14 +1092,6 @@ export default function HomeScreen() {
           </View>
         </Modal>
 
-        <FeedbackModal
-          isVisible={feedback.visible}
-          type={feedback.type}
-          title={feedback.title}
-          message={feedback.message}
-          onClose={() => setFeedback({ ...feedback, visible: false })}
-        />
-
         {/* Modal de Libreta de Contactos */}
         <Modal
           animationType="slide"
@@ -1092,8 +1099,8 @@ export default function HomeScreen() {
           visible={isContactsModalVisible}
           onRequestClose={() => setIsContactsModalVisible(false)}
         >
-          <View className="flex-1 justify-end bg-black/50">
-            <View className="bg-white dark:bg-gray-800 p-8 rounded-t-[50px] h-[80%] shadow-2xl">
+          <View className={`flex-1 ${isDesktop ? 'justify-center items-center' : 'justify-end'} bg-black/50`}>
+            <View className={`bg-white dark:bg-gray-800 p-8 ${isDesktop ? 'rounded-[40px] max-w-2xl w-full max-h-[80%]' : 'rounded-t-[50px] h-[80%]'} shadow-2xl`}>
               <View className="flex-row justify-between items-center mb-6">
                 <Text className="text-2xl font-bold text-gray-900 dark:text-white">Libreta de Contactos</Text>
                 <TouchableOpacity 
@@ -1105,13 +1112,13 @@ export default function HomeScreen() {
               </View>
 
               <ScrollView className="flex-1">
-                {contacts.length === 0 ? (
+                {contactsList.length === 0 ? (
                   <View className="items-center py-20">
                     <IconSymbol name="person.crop.circle.badge.plus" size={64} color="#d1d5db" />
                     <Text className="mt-4 text-gray-500 text-center">Aún no tienes contactos guardados</Text>
                   </View>
                 ) : (
-                  contacts.map((contact) => (
+                  contactsList.map((contact) => (
                     <TouchableOpacity 
                       key={contact.id}
                       onPress={() => {
@@ -1122,8 +1129,8 @@ export default function HomeScreen() {
                       }}
                       className="flex-row items-center p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700/50"
                     >
-                      <View className="w-12 h-12 bg-blue-100 rounded-full items-center justify-center mr-4 dark:bg-blue-900/30">
-                        <Text className="text-xl font-bold text-blue-600">{contact.contactName[0].toUpperCase()}</Text>
+                      <View className="w-12 h-12 bg-purple-100 rounded-full items-center justify-center mr-4 dark:bg-purple-900/30">
+                        <Text className="text-xl font-bold text-purple-600">{contact.contactName[0].toUpperCase()}</Text>
                       </View>
                       <View className="flex-1">
                         <Text className="text-lg font-bold text-gray-900 dark:text-white">{contact.contactName}</Text>
@@ -1157,8 +1164,8 @@ export default function HomeScreen() {
           visible={isAddContactModalVisible}
           onRequestClose={() => setIsAddContactModalVisible(false)}
         >
-          <View className="flex-1 justify-center items-center px-6 bg-black/60">
-            <View className="bg-white dark:bg-gray-800 w-full p-8 rounded-[40px] shadow-2xl">
+          <View className={`flex-1 justify-center items-center px-6 ${isDesktop ? 'bg-black/40' : 'bg-black/60'}`}>
+            <View className={`bg-white dark:bg-gray-800 p-8 rounded-[40px] shadow-2xl ${isDesktop ? 'max-w-md w-full' : 'w-full'}`}>
               <Text className="mb-6 text-2xl font-bold text-center text-gray-900 dark:text-white">Nuevo Contacto</Text>
               
               <Text className="mb-2 ml-2 text-gray-500">Nombre del contacto</Text>
@@ -1201,7 +1208,7 @@ export default function HomeScreen() {
                 <TouchableOpacity 
                   onPress={handleAddContact}
                   disabled={isAddingContact}
-                  className="justify-center items-center h-14 bg-blue-600 rounded-2xl flex-2"
+                  className="justify-center items-center h-14 bg-purple-600 rounded-2xl flex-2"
                 >
                   {isAddingContact ? (
                     <ActivityIndicator color="white" />
@@ -1221,10 +1228,10 @@ export default function HomeScreen() {
           animationType="fade"
           onRequestClose={() => setIsScanResultModalVisible(false)}
         >
-          <View className="flex-1 justify-center items-center px-6 bg-black/60">
-            <View className="bg-white dark:bg-gray-800 w-full p-8 rounded-[40px] items-center">
-              <View className="p-4 mb-4 bg-blue-100 rounded-full dark:bg-blue-900/30">
-                <IconSymbol name="person.crop.circle.badge.plus" size={40} color="#2563eb" />
+          <View className={`flex-1 justify-center items-center px-6 ${isDesktop ? 'bg-black/40' : 'bg-black/60'}`}>
+            <View className={`bg-white dark:bg-gray-800 p-8 rounded-[40px] items-center shadow-2xl ${isDesktop ? 'max-w-md w-full' : 'w-full'}`}>
+              <View className="p-4 mb-4 bg-purple-100 rounded-full dark:bg-purple-900/30">
+                <IconSymbol name="person.crop.circle.badge.plus" size={40} color="#9333ea" />
               </View>
               
               <Text className="mb-1 text-2xl font-bold text-center text-gray-900 dark:text-white">
@@ -1242,12 +1249,12 @@ export default function HomeScreen() {
                     setIsSendModalVisible(true);
                     setVerificationStep('input');
                   }}
-                  className="justify-center items-center w-full h-14 bg-blue-600 rounded-2xl shadow-sm"
+                  className="justify-center items-center w-full h-14 bg-purple-600 rounded-2xl shadow-sm"
                 >
                   <Text className="text-lg font-bold text-white">Enviar UTP Coins</Text>
                 </TouchableOpacity>
 
-                {!contacts.some(c => c.walletAddress === scannedAddress) && (
+                {!contactsList.some(c => c.walletAddress === scannedAddress) && (
                   <TouchableOpacity 
                     onPress={() => {
                       setNewContactAddress(scannedAddress);
@@ -1304,7 +1311,7 @@ export default function HomeScreen() {
               <TouchableOpacity 
                 onPress={handleDirectImport}
                 disabled={isImporting}
-                className="justify-center items-center mb-3 w-full h-14 bg-blue-600 rounded-2xl"
+                className="justify-center items-center mb-3 w-full h-14 bg-purple-600 rounded-2xl"
               >
                 {isImporting ? (
                   <ActivityIndicator color="white" />
@@ -1322,6 +1329,14 @@ export default function HomeScreen() {
             </View>
           </View>
         </Modal>
+
+        <FeedbackModal
+          isVisible={feedback.visible}
+          type={feedback.type}
+          title={feedback.title}
+          message={feedback.message}
+          onClose={() => setFeedback({ ...feedback, visible: false })}
+        />
       </ScrollView>
     </View>
   );

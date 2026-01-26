@@ -1,19 +1,20 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { UTPSymbol } from '@/components/ui/UTPSymbol';
 import { API_URL } from '@/constants/api';
 import { useAuth } from '@/context/auth';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
-  Modal,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    FlatList,
+    Modal,
+    Platform,
+    RefreshControl,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -434,8 +435,9 @@ export default function MissionsScreen() {
             </View>
           )}
         </View>
-        <View className="items-center px-4 py-2 bg-green-50 rounded-2xl dark:bg-green-900/20">
-          <Text className="text-lg font-black text-green-600 dark:text-green-400">${item.reward.toFixed(2)}</Text>
+        <View className="items-center px-4 py-2 bg-green-50 rounded-2xl dark:bg-green-900/20 flex-row">
+          <UTPSymbol size={16} color="#16a34a" containerStyle={{ marginRight: 6 }} />
+          <Text className="text-lg font-black text-green-600 dark:text-green-400">{item.reward.toFixed(2)}</Text>
         </View>
       </View>
 
@@ -452,9 +454,9 @@ export default function MissionsScreen() {
             {item.status === 'open' && (
               <TouchableOpacity 
                 onPress={() => fetchApplications(item.id)}
-                className="justify-center items-center px-4 mr-2 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
+                className="justify-center items-center px-4 mr-2 h-10 bg-purple-50 rounded-full dark:bg-purple-900/20"
               >
-                <Text className="text-xs font-bold text-blue-600 dark:text-blue-400">Ver Postulantes</Text>
+                <Text className="text-xs font-bold text-purple-600 dark:text-purple-400">Ver Postulantes</Text>
               </TouchableOpacity>
             )}
             
@@ -471,9 +473,9 @@ export default function MissionsScreen() {
               <>
                 <TouchableOpacity 
                   onPress={() => handleEditPress(item)}
-                  className="justify-center items-center mr-2 w-10 h-10 bg-blue-50 rounded-full dark:bg-blue-900/20"
+                  className="justify-center items-center mr-2 w-10 h-10 bg-purple-50 rounded-full dark:bg-purple-900/20"
                 >
-                  <IconSymbol name="pencil" size={18} color="#2563eb" />
+                  <IconSymbol name="pencil" size={18} color="#9333ea" />
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
@@ -490,12 +492,15 @@ export default function MissionsScreen() {
             {hasApplied ? (
               <View className="items-end mr-3">
                 <Text className="text-[10px] text-gray-400 uppercase font-bold">Tu Oferta</Text>
-                <Text className="text-xs font-bold text-blue-600">${item.myBid?.toFixed(2)}</Text>
+                <View className="flex-row items-center">
+                  <UTPSymbol size={12} color="#9333ea" containerStyle={{ marginRight: 4 }} />
+                  <Text className="text-xs font-bold text-purple-600">{item.myBid?.toFixed(2)}</Text>
+                </View>
               </View>
             ) : null}
             <TouchableOpacity 
               onPress={() => openApplyModal(item)}
-              className={`px-6 py-2 rounded-full ${hasApplied ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-blue-600'}`}
+              className={`px-6 py-2 rounded-full ${hasApplied ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-purple-600'}`}
             >
               <Text className={`text-sm font-bold ${hasApplied ? 'text-orange-600 dark:text-orange-400' : 'text-white'}`}>
                 {hasApplied ? 'Modificar Oferta' : 'Postularme'}
@@ -533,7 +538,7 @@ export default function MissionsScreen() {
               }}
               className="justify-center items-center mr-3 w-12 h-12 bg-white rounded-full border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700"
             >
-              <IconSymbol name="refresh" size={24} color="#2563eb" />
+              <IconSymbol name="refresh" size={24} color="#9333ea" />
             </TouchableOpacity>
 
             {isWeb && (
@@ -541,7 +546,7 @@ export default function MissionsScreen() {
                 onPress={() => router.push('/')}
                 className="px-6 py-3 mr-3 bg-white rounded-full border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700"
               >
-                <Text className="font-bold text-blue-600">Volver al Panel</Text>
+                <Text className="font-bold text-purple-600">Volver al Panel</Text>
               </TouchableOpacity>
             )}
 
@@ -624,12 +629,12 @@ export default function MissionsScreen() {
               <View className="flex-row flex-wrap mb-4">
                 {categories.map((cat) => (
                   <TouchableOpacity 
-                    key={cat.id}
-                    onPress={() => setSelectedCategoryId(cat.id)}
-                    className={`px-4 py-2 rounded-full mr-2 mb-2 ${selectedCategoryId === cat.id ? 'bg-blue-600' : 'bg-gray-100 dark:bg-gray-700'}`}
-                  >
-                    <Text className={`font-bold text-xs ${selectedCategoryId === cat.id ? 'text-white' : 'text-gray-600 dark:text-gray-300'}`}>{cat.name}</Text>
-                  </TouchableOpacity>
+                      key={cat.id} 
+                      onPress={() => setSelectedCategoryId(cat.id)}
+                      className={`px-4 py-2 rounded-full mr-2 mb-2 ${selectedCategoryId === cat.id ? 'bg-purple-600' : 'bg-gray-100 dark:bg-gray-700'}`}
+                    >
+                      <Text className={`font-bold text-xs ${selectedCategoryId === cat.id ? 'text-white' : 'text-gray-600 dark:text-gray-300'}`}>{cat.name}</Text>
+                    </TouchableOpacity>
                 ))}
               </View>
 

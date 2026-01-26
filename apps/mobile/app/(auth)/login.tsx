@@ -4,7 +4,7 @@ import { useAuth } from '@/context/auth';
 import { ethers, Wallet } from 'ethers';
 import { Link, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ActivityIndicator, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const isWeb = Platform.OS === 'web';
@@ -137,8 +137,12 @@ export default function LoginScreen() {
           
           <View className={`${isWeb ? 'p-10 bg-gray-50 shadow-xl w-[450px] dark:bg-gray-800 rounded-[40px]' : 'w-full'}`}>
             <View className="items-center mb-10">
-              <View className="justify-center items-center mb-4 w-20 h-20 bg-blue-600 rounded-3xl shadow-lg shadow-blue-500/50">
-                <Text className="text-4xl font-bold text-white">U</Text>
+              <View className="justify-center items-center mb-4 w-28 h-28 bg-white rounded-[32px] shadow-lg overflow-hidden p-4">
+                <Image 
+                  source={require('@/assets/images/icon.png')} 
+                  style={{ width: '100%', height: '100%' }}
+                  resizeMode="contain"
+                />
               </View>
               <Text className="text-3xl font-bold text-gray-900 dark:text-white">Bienvenido a UTPay</Text>
               <Text className="mt-2 text-center text-gray-500 dark:text-gray-400">Inicia sesión con tu cuenta institucional</Text>
@@ -179,7 +183,7 @@ export default function LoginScreen() {
               <TouchableOpacity 
                 onPress={handleLogin}
                 disabled={loading}
-                className="justify-center items-center mt-10 h-16 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30"
+                className="justify-center items-center mt-10 h-16 bg-purple-600 rounded-2xl shadow-lg shadow-purple-500/30"
               >
                 {loading ? (
                   <ActivityIndicator color="white" />
@@ -193,7 +197,7 @@ export default function LoginScreen() {
               <Text className="text-lg text-gray-500 dark:text-gray-400">¿No tienes cuenta? </Text>
               <Link href="/register" asChild>
                 <TouchableOpacity>
-                  <Text className="text-lg font-bold text-blue-600">Regístrate</Text>
+                  <Text className="text-lg font-bold text-purple-600">Regístrate</Text>
                 </TouchableOpacity>
               </Link>
             </View>
@@ -242,7 +246,7 @@ export default function LoginScreen() {
             <TouchableOpacity 
               onPress={handleImportWallet}
               disabled={loading}
-              className="justify-center items-center mt-8 h-16 bg-green-600 rounded-2xl shadow-lg shadow-green-500/30"
+              className="justify-center items-center mt-8 h-16 bg-purple-600 rounded-2xl shadow-lg shadow-purple-500/30"
             >
               {loading ? (
                 <ActivityIndicator color="white" />

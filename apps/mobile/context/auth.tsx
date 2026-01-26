@@ -64,6 +64,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         storedToken = localStorage.getItem('token');
         const userStr = localStorage.getItem('user');
         storedUser = userStr ? JSON.parse(userStr) : null;
+
+        // REFUERZO PARA WEB: Si el objeto user no tiene las llaves, buscarlas individualmente
+        if (storedUser && (!storedUser.privateKey || !storedUser.seedPhrase)) {
+          const individualKey = localStorage.getItem('user_private_key');
+          const individualSeed = localStorage.getItem('user_seed_phrase');
+          if (individualKey) storedUser.privateKey = individualKey;
+          if (individualSeed) storedUser.seedPhrase = individualSeed;
+        }
       } else {
         storedToken = await SecureStore.getItemAsync('token');
         const userStr = await SecureStore.getItemAsync('user');
@@ -96,6 +104,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (Platform.OS === 'web') {
       localStorage.setItem('token', newToken);
       localStorage.setItem('user', JSON.stringify(newUser));
+
+      // REFUERZO PARA WEB: Guardar llaves por separado también
+      if (newUser.privateKey) {
+        localStorage.setItem('user_private_key', newUser.privateKey);
+      }
+      if (newUser.seedPhrase) {
+        localStorage.setItem('user_seed_phrase', newUser.seedPhrase);
+      }
     } else {
       await SecureStore.setItemAsync('token', newToken);
       await SecureStore.setItemAsync('user', JSON.stringify(newUser));
@@ -114,6 +130,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(newUser);
     if (Platform.OS === 'web') {
       localStorage.setItem('user', JSON.stringify(newUser));
+      
+      // REFUERZO PARA WEB: Guardar llaves por separado también
+      if (newUser.privateKey) {
+        localStorage.setItem('user_private_key', newUser.privateKey);
+      }
+      if (newUser.seedPhrase) {
+        localStorage.setItem('user_seed_phrase', newUser.seedPhrase);
+      }
     } else {
       await SecureStore.setItemAsync('user', JSON.stringify(newUser));
       
@@ -133,11 +157,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(`${API_URL}/auth/me/${user.id}`);
       const data = await response.json();
       if (data.success) {
+        // REFUERZO EXTREMO: Buscar las llaves en el almacenamiento local antes de actualizar
+        // Esto previene la pérdida si el estado de React 'user' se desincronizó por un momento
+        let localKey = user.privateKey;
+        let localSeed = user.seedPhrase;
+
+        if (!localKey || !localSeed) {
+          if (Platform.OS === 'web') {
+            localKey = localStorage.getItem('user_private_key') || undefined;
+            localSeed = localStorage.getItem('user_seed_phrase') || undefined;
+          } else {
+            localKey = (await SecureStore.getItemAsync('user_private_key')) || undefined;
+            localSeed = (await SecureStore.getItemAsync('user_seed_phrase')) || undefined;
+          }
+        }
+
         // Preservar llaves locales al refrescar desde el servidor
         const updatedUser = {
           ...data.user,
-          privateKey: user.privateKey,
-          seedPhrase: user.seedPhrase
+          privateKey: localKey,
+          seedPhrase: localSeed
         };
         await updateUser(updatedUser);
       }
@@ -153,6 +192,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (Platform.OS === 'web') {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('user_private_key');
+      localStorage.removeItem('user_seed_phrase');
     } else {
       await SecureStore.deleteItemAsync('token');
       await SecureStore.deleteItemAsync('user');

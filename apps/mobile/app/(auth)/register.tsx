@@ -133,7 +133,7 @@ export default function RegisterScreen() {
               <TouchableOpacity 
                 onPress={handleRegister}
                 disabled={loading}
-                className="justify-center items-center mt-10 h-16 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30"
+                className="justify-center items-center mt-10 h-16 bg-purple-600 rounded-2xl shadow-lg shadow-purple-500/30"
               >
                 {loading ? (
                   <ActivityIndicator color="white" />
@@ -147,7 +147,7 @@ export default function RegisterScreen() {
               <Text className="text-lg text-gray-500 dark:text-gray-400">¿Ya tienes cuenta? </Text>
               <Link href="/login" asChild>
                 <TouchableOpacity>
-                  <Text className="text-lg font-bold text-blue-600">Inicia sesión</Text>
+                  <Text className="text-lg font-bold text-purple-600">Inicia sesión</Text>
                 </TouchableOpacity>
               </Link>
             </View>
@@ -202,7 +202,7 @@ export default function RegisterScreen() {
                     <Text className="text-gray-900 dark:text-white font-mono text-center text-lg leading-8">
                       {generatedKeys?.seedPhrase}
                     </Text>
-                    <Text className="text-blue-500 text-center mt-3 font-bold">Toca para copiar frase</Text>
+                    <Text className="text-purple-600 text-center mt-3 font-bold">Toca para copiar frase</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -212,7 +212,7 @@ export default function RegisterScreen() {
                       setShowKeysModal(false);
                       router.replace('/login');
                     }}
-                    className="bg-blue-600 h-16 rounded-2xl items-center justify-center shadow-lg shadow-blue-500/30"
+                    className="bg-purple-600 h-16 rounded-2xl items-center justify-center shadow-lg shadow-purple-500/30"
                   >
                     <Text className="text-white text-lg font-bold">He guardado mi frase de forma segura</Text>
                   </TouchableOpacity>

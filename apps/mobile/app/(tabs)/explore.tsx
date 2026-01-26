@@ -1,4 +1,5 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { UTPSymbol } from '@/components/ui/UTPSymbol';
 import { API_URL } from '@/constants/api';
 import { useAuth } from '@/context/auth';
 import { useRouter } from 'expo-router';
@@ -65,14 +66,14 @@ export default function ExploreScreen() {
               onPress={fetchFullHistory}
               className="bg-white dark:bg-gray-800 p-3 rounded-full shadow-sm border border-gray-100 dark:border-gray-700 mr-2"
             >
-              <IconSymbol name="refresh" size={24} color="#2563eb" />
+              <IconSymbol name="refresh" size={24} color="#9333ea" />
             </TouchableOpacity>
             {isWeb && (
               <TouchableOpacity 
                 onPress={() => router.push('/')}
                 className="bg-white dark:bg-gray-800 px-6 py-3 rounded-full shadow-sm border border-gray-100 dark:border-gray-700"
               >
-                <Text className="font-bold text-blue-600">Volver al Panel</Text>
+                <Text className="font-bold text-purple-600">Volver al Panel</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -80,7 +81,7 @@ export default function ExploreScreen() {
         
         {isLoading ? (
           <View className="flex-1 justify-center items-center">
-            <ActivityIndicator size="large" color="#2563eb" />
+            <ActivityIndicator size="large" color="#9333ea" />
           </View>
         ) : history.length === 0 ? (
           <View className="flex-1 justify-center items-center">
@@ -129,9 +130,10 @@ export default function ExploreScreen() {
                       </Text>
                     </View>
                   </View>
-                  <View className="flex-shrink-0 ml-2">
+                  <View className="flex-shrink-0 ml-2 flex-row items-center">
+                    <UTPSymbol size={18} color={!isExpense ? '#22c55e' : '#ef4444'} containerStyle={{ marginRight: 6 }} />
                     <Text className={`font-bold text-2xl ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
-                      {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
+                      {!isExpense ? '+' : '-'}{item.amount.toFixed(2)}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -159,8 +161,10 @@ export default function ExploreScreen() {
                   color={selectedTransaction?.senderId === user?.id ? '#ef4444' : '#22c55e'} 
                 />
               </View>
-              <Text className="text-3xl font-black text-gray-900 dark:text-white">
-                {selectedTransaction?.senderId === user?.id ? '-' : '+'}${selectedTransaction?.amount?.toFixed(2)} UTP
+              <Text className="text-3xl font-black text-gray-900 dark:text-white flex-row items-center">
+                {selectedTransaction?.senderId === user?.id ? '-' : '+'}
+                <UTPSymbol size={24} color={selectedTransaction?.senderId === user?.id ? '#ef4444' : '#22c55e'} containerStyle={{ marginHorizontal: 4 }} />
+                {selectedTransaction?.amount?.toFixed(2)}
               </Text>
               <Text className="text-gray-500 dark:text-gray-400 mt-1">
                 {selectedTransaction ? new Date(selectedTransaction.createdAt).toLocaleString() : ''}
