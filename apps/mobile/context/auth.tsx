@@ -11,6 +11,7 @@ type User = {
   walletAddress?: string;
   privateKey?: string;
   seedPhrase?: string;
+  balance?: string; // Nuevo: Balance obtenido del contrato vía API
 };
 
 type AuthContextType = {

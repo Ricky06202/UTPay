@@ -3,10 +3,23 @@ import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  email: text("email").notNull().unique(),
+  email: text("email").notNull().unique(), // Este será nuestro Student ID en el contrato
   name: text("name").notNull(),
   password: text("password").notNull(),
-  // walletAddress y balance eliminados para ser 100% Web3 (se obtienen de la blockchain)
+  walletAddress: text("wallet_address"), // Guardamos el reflejo de la billetera actual
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+});
+
+export const transactions = sqliteTable("transactions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  txHash: text("tx_hash").notNull().unique(),
+  senderId: integer("sender_id").references(() => users.id, { onDelete: 'set null' }),
+  receiverId: integer("receiver_id").references(() => users.id, { onDelete: 'set null' }),
+  senderEmail: text("sender_email"), // Cache del correo en el momento de la tx
+  receiverEmail: text("receiver_email"),
+  amount: real("amount").notNull(),
+  description: text("description"),
+  status: text("status").default('pending'), // pending, success, failed
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 
@@ -44,4 +57,10 @@ export const contacts = sqliteTable("contacts", {
   contactName: text("contact_name").notNull(),
   walletAddress: text("wallet_address").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+});
+
+export const kvMetadata = sqliteTable("kv_metadata", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });

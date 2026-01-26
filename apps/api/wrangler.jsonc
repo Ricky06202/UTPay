@@ -8,5 +8,8 @@
       "database_name": "utpay",
       "database_id": "fc47d08a-3450-4bd0-b42f-109e9e4384ef"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
 }

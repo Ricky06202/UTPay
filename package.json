@@ -14,6 +14,13 @@
     "build:all": "bun run build:android && bun run build:ios",
     "deploy:all": "bun run deploy:mobile && bun run deploy:api",
     "deploy:mobile": "cd apps/mobile && bun run export && bun run deploy",
-    "deploy:api": "cd apps/api && bun run db:push && bun run deploy"
+    "deploy:api": "cd apps/api && bun run db:push && bun run deploy",
+    "besu:up": "docker-compose up -d",
+    "besu:down": "docker-compose down",
+    "besu:logs": "docker-compose logs -f",
+    "contract:compile": "cd blockchain && npm run compile",
+    "contract:deploy": "cd blockchain && npm run deploy",
+    "blockchain:reset": "npm run besu:down && npm run besu:up && npm run contract:compile && npm run contract:deploy"
+
   }
 }

@@ -71,12 +71,12 @@ export default function HomeScreen() {
   const [isImporting, setIsImporting] = useState(false);
 
   const fetchBlockchainBalance = async () => {
-    if (!user?.walletAddress) {
-      console.log('No wallet address available for balance fetch');
+    if (!user?.email) {
+      console.log('No email available for balance fetch');
       return;
     }
     try {
-      const balance = await getUTPBalance(user.walletAddress);
+      const balance = await getUTPBalance(user.email);
       setBlockchainBalance(balance);
     } catch (error) {
       console.error('Error fetching balance from blockchain:', error);
@@ -126,10 +126,10 @@ export default function HomeScreen() {
   };
 
   const fetchHistory = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.email) return;
     try {
       setIsLoadingHistory(true);
-      const response = await fetch(`${API_URL}/transactions/history/${user.id}/${user.walletAddress}`);
+      const response = await fetch(`${API_URL}/transactions/history/${user.email}`);
       const data = await response.json();
       if (data.success) {
         setHistory(data.history.slice(0, 5)); // Solo los últimos 5 para el dashboard
@@ -287,19 +287,19 @@ export default function HomeScreen() {
   };
 
   const handleVerifyRecipient = async (idToVerify?: string) => {
-    const targetAddress = idToVerify || receiverUTPId;
+    const targetId = idToVerify || receiverUTPId;
 
-    if (!targetAddress || targetAddress.length < 40 || !amount) {
+    if (!targetId || !amount) {
       setFeedback({
         visible: true,
         type: 'error',
         title: 'Campos incompletos',
-        message: 'Por favor ingresa una dirección de Blockchain válida y un monto.'
+        message: 'Por favor ingresa un correo o ID de estudiante y un monto.'
       });
       return;
     }
 
-    if (targetAddress.toLowerCase() === user?.walletAddress?.toLowerCase()) {
+    if (targetId.toLowerCase() === user?.email?.toLowerCase()) {
       setFeedback({
         visible: true,
         type: 'error',
@@ -311,7 +311,11 @@ export default function HomeScreen() {
 
     try {
       setIsVerifying(true);
-      const response = await fetch(`${API_URL}/users/verify-address/${targetAddress}`);
+      // Intentar verificar por correo (Abstracción de Identidad)
+      const isEmail = targetId.includes('@');
+      const endpoint = isEmail ? `verify-email/${targetId}` : `verify-address/${targetId}`;
+      
+      const response = await fetch(`${API_URL}/users/${endpoint}`);
       const data = await response.json();
 
       if (data.success) {
@@ -323,7 +327,7 @@ export default function HomeScreen() {
           type: 'error',
           visible: true,
           title: 'Usuario no encontrado',
-          message: data.message || 'No existe ningún usuario con esa dirección.'
+          message: data.message || 'No existe ningún usuario con ese identificador.'
         });
       }
     } catch (error) {
@@ -427,12 +431,12 @@ export default function HomeScreen() {
     console.log('Attempting to send money...');
     console.log('User private key available:', !!user?.privateKey);
     
-    if (!recipientData?.id || !amount || !user?.privateKey) {
+    if (!recipientData?.email || !amount || !user?.privateKey) {
       setFeedback({
         visible: true,
         type: 'error', 
         title: 'Error de Llaves',
-        message: 'No se encontró tu llave privada local para firmar la transacción. Intenta importar tu billetera de nuevo.'
+        message: 'No se encontró tu llave privada local o el correo del receptor.'
       });
       return;
     }
@@ -440,7 +444,7 @@ export default function HomeScreen() {
     try {
       setIsSending(true);
 
-      // 0. Validar saldo antes de proceder (Balance Local vs Monto)
+      // 0. Validar saldo antes de proceder (Balance On-Chain vs Monto)
       const currentBalance = parseFloat(blockchainBalance || '0');
       const sendAmount = parseFloat(amount);
       
@@ -449,44 +453,44 @@ export default function HomeScreen() {
           visible: true,
           type: 'error',
           title: 'Saldo Insuficiente',
-          message: `No tienes suficientes UTP en tu billetera blockchain. Saldo actual: ${currentBalance} UTP`
+          message: `No tienes suficientes UTP en el contrato. Saldo actual: ${currentBalance} UTP`
         });
         setIsSending(false);
         return;
       }
 
-      // 1. Firmar y enviar transacción a la Blockchain (Besu) usando la llave privada local
+      // 1. Firmar y enviar transacción al contrato UTPay usando la llave privada local
       let txHash = '';
       try {
         const wallet = getWallet(user.privateKey);
+        const contract = getUTPayContract(wallet);
         
-        // Codificar el comentario en Hexadecimal para guardarlo "On-Chain"
-        // Solo guardamos el comentario si el usuario lo escribió, para mantener el anonimato.
-        // NO incluimos nombres reales en la blockchain.
         const memo = comment || "";
-        const hexMemo = memo ? ethers.utils.hexlify(ethers.utils.toUtf8Bytes(memo)) : "0x";
-
-        const tx = await wallet.sendTransaction({
-          to: recipientData.walletAddress,
-          value: ethers.utils.parseEther(amount),
-          data: hexMemo, // Solo lleva el comentario si existe
-        });
+        
+        // Llamar a transferByEmail en lugar de transferencia nativa
+        const tx = await contract.transferByEmail(
+          recipientData.email,
+          ethers.utils.parseEther(amount),
+          memo
+        );
+        
         txHash = tx.hash;
-        console.log('Blockchain Transaction Sent with Memo:', txHash);
+        console.log('UTPay Contract Transaction Sent:', txHash);
       } catch (blockchainError: any) {
         console.error('Blockchain Error:', blockchainError);
-        throw new Error('Error al firmar transacción: ' + (blockchainError.message || 'Error desconocido'));
+        throw new Error('Error al firmar transacción en el contrato: ' + (blockchainError.message || 'Error desconocido'));
       }
 
-      // 2. Notificar al backend para registro en el historial (opcional en Web3 pura, pero útil aquí)
+      // 2. Notificar al backend para registro en el historial (Caché Indexador)
       const response = await fetch(`${API_URL}/transactions/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           senderId: user.id,
-          receiverId: recipientData.id,
+          senderEmail: user.email,
+          receiverEmail: recipientData.email,
           amount: parseFloat(amount),
-          description: comment ? comment : `A: ${recipientData.name}`,
+          description: comment ? comment : `Transferencia a ${recipientData.email}`,
           txHash: txHash
         })
       });

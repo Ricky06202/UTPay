@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, sql } from 'drizzle-orm'
-import { Wallet } from 'ethers'
+import { and, desc, eq, or, sql } from 'drizzle-orm'
+import { ethers, Wallet } from 'ethers'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { SignJWT } from 'jose'
-import { contacts as contactsTable, createDb, missionApplications, missionCategories, missions, users } from './db'
+import { contacts as contactsTable, createDb, kvMetadata, missionApplications, missionCategories, missions, transactions, users } from './db'
+import { getContract, getReadOnlyContract } from './utils/blockchain'
 
 type Bindings = {
   DB: D1Database
@@ -18,7 +19,7 @@ app.use('/*', cors())
 
 app.get('/', (c) => {
   return c.json({
-    message: 'Hello from Hono + Drizzle + D1!',
+    message: 'UTPay API - Blockchain Indexer Edition',
     status: 'ok'
   })
 })
@@ -29,19 +30,31 @@ app.post('/auth/register', async (c) => {
     const { email, name, password } = await c.req.json()
     const db = createDb(c.env.DB)
 
-    // 1. Encriptar contraseña - Usamos 8 rondas para no bloquear la CPU de Cloudflare Workers
+    // 1. Encriptar contraseña
     const hashedPassword = await bcrypt.hash(password, 8)
 
     // 2. Generar Wallet de Blockchain
     const wallet = Wallet.createRandom()
     const seedPhrase = wallet.mnemonic?.phrase || ''
     
-    // 3. Insertar usuario (SIN guardar dirección ni balance)
+    // 3. Insertar usuario en la DB
     const newUser = await db.insert(users).values({
       email,
       name,
-      password: hashedPassword
+      password: hashedPassword,
+      walletAddress: wallet.address
     }).returning()
+
+    // 4. Registrar en el Smart Contract (Abstracción de Identidad)
+    try {
+      const contract = getContract()
+      const tx = await contract.registerStudent(email, wallet.address)
+      await tx.wait()
+      console.log(`Estudiante ${email} registrado en blockchain con wallet ${wallet.address}`)
+    } catch (blockchainError) {
+      console.error('Error al registrar en blockchain:', blockchainError)
+      // No bloqueamos el registro en la DB, pero lo ideal sería reintentar o marcar como pendiente
+    }
 
     return c.json({ 
       success: true, 
@@ -49,8 +62,8 @@ app.post('/auth/register', async (c) => {
         id: newUser[0].id, 
         email: newUser[0].email, 
         name: newUser[0].name,
-        privateKey: wallet.privateKey, // SE ENVÍA SOLO ESTA VEZ AL CLIENTE
-        seedPhrase: seedPhrase        // EL CLIENTE DEBE GUARDARLO LOCALMENTE
+        privateKey: wallet.privateKey,
+        seedPhrase: seedPhrase
       } 
     })
   } catch (e: any) {
@@ -89,8 +102,8 @@ app.post('/auth/login', async (c) => {
       user: { 
         id: user.id, 
         name: user.name, 
-        email: user.email
-        // El balance y la wallet se manejan exclusivamente en el cliente
+        email: user.email,
+        walletAddress: user.walletAddress
       } 
     })
   } catch (e: any) {
@@ -114,13 +127,24 @@ app.get('/auth/me/:id', async (c) => {
       return c.json({ success: false, message: 'Usuario no encontrado' }, 404)
     }
 
+    // Obtener balance real del contrato
+    let balance = '0.0'
+    try {
+      const contract = getReadOnlyContract()
+      const rawBalance = await contract.getBalance(user.email)
+      balance = (Number(rawBalance) / 1e18).toString()
+    } catch (e) {
+      console.error('Error al obtener balance del contrato:', e)
+    }
+
     return c.json({ 
       success: true, 
       user: { 
         id: user.id, 
         name: user.name, 
-        email: user.email
-        // El balance y la wallet se manejan exclusivamente en el cliente
+        email: user.email,
+        walletAddress: user.walletAddress,
+        balance: balance
       } 
     })
   } catch (e: any) {
@@ -128,7 +152,23 @@ app.get('/auth/me/:id', async (c) => {
   }
 })
 
-// Endpoint para verificar un receptor por email (Búsqueda por email en lugar de dirección)
+app.get('/users/verify-address/:address', async (c) => {
+  try {
+    const address = c.req.param('address')
+    const db = createDb(c.env.DB)
+    const user = await db.select().from(users).where(eq(users.walletAddress, address)).get()
+
+    if (!user) {
+      return c.json({ success: false, message: 'No se encontró un usuario con esa dirección' }, 404)
+    }
+
+    return c.json({ success: true, user: { id: user.id, name: user.name, email: user.email, walletAddress: user.walletAddress } })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// Endpoint para verificar un receptor por email
 app.get('/users/verify-email/:email', async (c) => {
   try {
     const email = c.req.param('email')
@@ -136,99 +176,151 @@ app.get('/users/verify-email/:email', async (c) => {
     const user = await db.select().from(users).where(eq(users.email, email)).get()
 
     if (!user) {
-      return c.json({ success: false, message: 'Usuario no encontrado' }, 404)
+      // Si no está en la DB local, podríamos verificar en el contrato
+      try {
+        const contract = getReadOnlyContract()
+        await contract.getBalance(email)
+        // Si no revierte, el estudiante existe en el contrato
+        return c.json({ success: true, user: { name: 'Estudiante UTP', email: email } })
+      } catch (contractErr) {
+        return c.json({ success: false, message: 'No se encontró un usuario con ese correo' }, 404)
+      }
     }
 
     return c.json({ 
       success: true, 
-      user: { id: user.id, name: user.name, email: user.email } 
+      user: { id: user.id, name: user.name, email: user.email, walletAddress: user.walletAddress } 
     })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
 })
 
-// Endpoint para enviar dinero
+// Endpoint para enviar dinero (Registro de intención)
 app.post('/transactions/send', async (c) => {
   try {
-    const { senderId, receiverEmail, receiverId, amount, description, txHash } = await c.req.json()
+    const { senderId, senderEmail, receiverEmail, amount, description, txHash } = await c.req.json()
     const db = createDb(c.env.DB)
 
     if (amount <= 0) {
       return c.json({ success: false, message: 'El monto debe ser mayor a 0' }, 400)
     }
 
-    // Redondear a 2 decimales
     const finalAmount = Math.round(amount * 100) / 100
 
-    // 1. Buscar emisor y receptor
-    const sender = await db.select().from(users).where(eq(users.id, senderId)).get()
+    // 1. Buscar emisor y receptor en la DB local para vincular IDs
+    const sender = senderId 
+      ? await db.select().from(users).where(eq(users.id, senderId)).get()
+      : await db.select().from(users).where(eq(users.email, senderEmail)).get()
     
-    let receiver;
-    if (receiverId) {
-      receiver = await db.select().from(users).where(eq(users.id, receiverId)).get()
-    } else if (receiverEmail) {
-      receiver = await db.select().from(users).where(eq(users.email, receiverEmail)).get()
-    }
+    const receiver = await db.select().from(users).where(eq(users.email, receiverEmail)).get()
 
-    if (!sender) return c.json({ success: false, message: 'Emisor no encontrado' }, 404)
-    if (!receiver) return c.json({ success: false, message: 'Receptor no encontrado' }, 404)
-    if (sender.id === receiver.id) return c.json({ success: false, message: 'No puedes enviarte dinero a ti mismo' }, 400)
-    
-    // El balance ya no se valida ni se guarda en el servidor.
-    // La App móvil valida el balance real de la blockchain antes de enviar.
+    // 2. Registrar en la tabla de transacciones como 'pending'
+    // Incluso si el receptor no está en nuestra DB (pero sí en el contrato), guardamos el correo
+    await db.insert(transactions).values({
+      txHash,
+      senderId: sender?.id || null,
+      receiverId: receiver?.id || null,
+      senderEmail: sender?.email || senderEmail,
+      receiverEmail: receiver?.email || receiverEmail,
+      amount: finalAmount,
+      description: description || `Envío a ${receiverEmail}`,
+      status: 'pending'
+    })
 
-    return c.json({ success: true, message: 'Transferencia registrada en el sistema' })
+    return c.json({ success: true, message: 'Transacción registrada. El indexador la confirmará en breve.' })
   } catch (e: any) {
     console.error('Error en transferencia:', e)
     return c.json({ success: false, message: 'Error al procesar la transferencia', error: e.message }, 500)
   }
 })
 
-// Endpoint para obtener historial de transacciones directamente desde Blockscout (Blockchain)
-app.get('/transactions/history/:userId/:address', async (c) => {
+// Historial de transacciones (por email)
+app.get('/transactions/history/:email', async (c) => {
   try {
-    const userId = parseInt(c.req.param('userId'))
-    const address = c.req.param('address')
+    const email = c.req.param('email')
     const db = createDb(c.env.DB)
 
-    // 1. Consultar a Blockscout API usando la dirección enviada por el cliente
-    const BLOCKSCOUT_URL = 'http://localhost:4000/api'
-    const query = `?module=account&action=txlist&address=${address}&sort=desc`
-    
-    const response = await fetch(BLOCKSCOUT_URL + query)
-    const data: any = await response.json()
+    // Consultar la tabla de transacciones (Caché de lectura)
+    const history = await db.select()
+      .from(transactions)
+      .where(or(eq(transactions.senderEmail, email), eq(transactions.receiverEmail, email)))
+      .orderBy(desc(transactions.createdAt))
+      .all()
 
-    if (data.status !== '1' || !Array.isArray(data.result)) {
-      return c.json({ success: true, history: [] })
-    }
+    const formattedHistory = history.map(tx => ({
+      id: tx.txHash,
+      txHash: tx.txHash,
+      amount: tx.amount,
+      description: tx.description,
+      createdAt: tx.createdAt,
+      senderName: tx.senderEmail,
+      receiverName: tx.receiverEmail,
+      isOutgoing: tx.senderEmail === email,
+      status: tx.status
+    }))
 
-    // 2. Procesar y enriquecer transacciones con nombres de la DB local
-    // Nota: Ahora no podemos cruzar nombres tan fácil si no tenemos las direcciones en la DB
-    // Pero podemos seguir guardando las direcciones en la tabla de Contactos para referencia.
-    
-    // 3. Formatear para la App
-    const history = data.result.map((tx: any) => {
-      const fromAddr = tx.from.toLowerCase()
-      const toAddr = tx.to.toLowerCase()
-      const isSender = fromAddr === address.toLowerCase()
-      
-      return {
-        id: tx.hash,
-        txHash: tx.hash,
-        amount: parseFloat(tx.value) / 1e18,
-        description: isSender ? `Envío a ${toAddr}` : `Recibido de ${fromAddr}`,
-        createdAt: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
-        senderName: fromAddr,
-        receiverName: toAddr,
-        isOutgoing: isSender,
-        status: tx.txreceipt_status === '1' ? 'success' : 'failed'
-      }
-    })
-
-    return c.json({ success: true, history })
+    return c.json({ success: true, history: formattedHistory })
   } catch (e: any) {
     console.error('Error en historial:', e)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// --- Endpoints Internos para el Indexador ---
+
+app.post('/internal/confirm-transaction', async (c) => {
+  try {
+    const { txHash, status, fromEmail, toEmail, amount, metadata } = await c.req.json()
+    const db = createDb(c.env.DB)
+
+    // Buscar si ya existe (por si fue creada por la app antes de la blockchain)
+    const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get()
+
+    if (existing) {
+      await db.update(transactions)
+        .set({ status: status })
+        .where(eq(transactions.txHash, txHash))
+        .run()
+    } else {
+      // Insertar nueva transacción detectada por el indexador
+      // Buscamos los IDs de los usuarios si existen en nuestra DB local
+      const sender = await db.select().from(users).where(eq(users.email, fromEmail)).get()
+      const receiver = await db.select().from(users).where(eq(users.email, toEmail)).get()
+
+      await db.insert(transactions).values({
+        txHash,
+        senderId: sender?.id || 0,
+        receiverId: receiver?.id || 0,
+        senderEmail: fromEmail,
+        receiverEmail: toEmail,
+        amount: amount.toString(),
+        description: metadata || '',
+        status: status
+      }).run()
+    }
+
+    console.log(`Indexador: Transacción ${txHash} sincronizada en DB (${status})`)
+    return c.json({ success: true })
+  } catch (e: any) {
+    console.error('Error en confirm-transaction:', e)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+app.post('/internal/update-user-wallet', async (c) => {
+  try {
+    const { email, newWallet } = await c.req.json()
+    const db = createDb(c.env.DB)
+
+    await db.update(users)
+      .set({ walletAddress: newWallet })
+      .where(eq(users.email, email))
+      .run()
+
+    console.log(`Indexador: Wallet de ${email} actualizada a ${newWallet}`)
+    return c.json({ success: true })
+  } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
 })
@@ -294,6 +386,44 @@ app.delete('/contacts/:id', async (c) => {
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
+})
+
+// --- Endpoints Administrativos (Universidad) ---
+
+app.post('/admin/mint', async (c) => {
+  try {
+    const { email, amount } = await c.req.json()
+    const contract = getContract()
+    
+    console.log(`Admin: Cargando ${amount} UTP a ${email}...`)
+    const tx = await contract.mint(email, ethers.parseEther(amount.toString()))
+    await tx.wait()
+    
+    return c.json({ success: true, txHash: tx.hash })
+  } catch (e: any) {
+    console.error('Error en admin mint:', e)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+app.post('/admin/update-wallet', async (c) => {
+  try {
+    const { email, newWallet } = await c.req.json()
+    const contract = getContract()
+    
+    console.log(`Admin: Actualizando wallet de ${email} a ${newWallet}...`)
+    const tx = await contract.updateWallet(email, newWallet)
+    await tx.wait()
+    
+    return c.json({ success: true, txHash: tx.hash })
+  } catch (e: any) {
+    console.error('Error en admin update-wallet:', e)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+app.get('/health', (c) => {
+  return c.text('UTPay API is running!')
 })
 
 // --- ENDPOINTS DE MISIONES ---
@@ -709,4 +839,103 @@ app.post('/missions/complete', async (c) => {
   }
 })
 
-export default app
+export default {
+  fetch: app.fetch,
+  async scheduled(event: any, env: Bindings, ctx: any) {
+    ctx.waitUntil(runIndexer(env));
+  },
+};
+
+async function runIndexer(env: Bindings) {
+  console.log("🚀 Iniciando ronda de indexación (Scheduled)...");
+  const db = createDb(env.DB);
+  const contract = getReadOnlyContract();
+
+  try {
+    // 1. Obtener el último bloque procesado de la DB
+    const lastBlockMeta = await db.select().from(kvMetadata).where(eq(kvMetadata.key, 'last_indexed_block')).get();
+    let fromBlock = lastBlockMeta ? parseInt(lastBlockMeta.value) + 1 : 0;
+    
+    // 2. Obtener el bloque actual de la red
+    const currentBlock = await contract.runner?.provider?.getBlockNumber();
+    if (!currentBlock || fromBlock > currentBlock) {
+      console.log("No hay bloques nuevos para procesar.");
+      return;
+    }
+
+    // Limitamos a procesar 1000 bloques por vez para no saturar el Worker
+    const toBlock = Math.min(fromBlock + 1000, currentBlock);
+    console.log(`Buscando eventos desde el bloque ${fromBlock} al ${toBlock}...`);
+
+    // 3. Consultar eventos de Transferencia
+    const transferFilter = contract.filters.Transfer();
+    const transferEvents = await contract.queryFilter(transferFilter, fromBlock, toBlock);
+
+    for (const event of transferEvents) {
+      if ('args' in event && event.args) {
+        const [fromEmail, toEmail, amount, metadata] = event.args;
+        const txHash = event.transactionHash;
+
+        console.log(`✨ Sincronizando Transferencia: ${fromEmail} -> ${toEmail} (${ethers.formatEther(amount)} UTP)`);
+
+        // Evitar duplicados
+        const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
+        if (!existing) {
+          const sender = await db.select().from(users).where(eq(users.email, fromEmail)).get();
+          const receiver = await db.select().from(users).where(eq(users.email, toEmail)).get();
+
+          await db.insert(transactions).values({
+            txHash,
+            senderId: sender?.id || null,
+            receiverId: receiver?.id || null,
+            senderEmail: fromEmail,
+            receiverEmail: toEmail,
+            amount: ethers.formatEther(amount),
+            description: metadata || '',
+            status: 'success'
+          }).run();
+        }
+      }
+    }
+
+    // 4. Consultar eventos de Mint (Carga de saldo)
+    const mintFilter = contract.filters.Mint();
+    const mintEvents = await contract.queryFilter(mintFilter, fromBlock, toBlock);
+
+    for (const event of mintEvents) {
+      if ('args' in event && event.args) {
+        const [email, amount] = event.args;
+        const txHash = event.transactionHash;
+
+        console.log(`💰 Sincronizando Mint: ${email} (+${ethers.formatEther(amount)} UTP)`);
+
+        const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
+        if (!existing) {
+          const receiver = await db.select().from(users).where(eq(users.email, email)).get();
+
+          await db.insert(transactions).values({
+            txHash,
+            senderId: null,
+            receiverId: receiver?.id || null,
+            senderEmail: 'SISTEMA',
+            receiverEmail: email,
+            amount: ethers.formatEther(amount),
+            description: 'Carga de saldo por Admin',
+            status: 'success'
+          }).run();
+        }
+      }
+    }
+
+    // 5. Actualizar el último bloque procesado
+    if (lastBlockMeta) {
+      await db.update(kvMetadata).set({ value: toBlock.toString() }).where(eq(kvMetadata.key, 'last_indexed_block')).run();
+    } else {
+      await db.insert(kvMetadata).values({ key: 'last_indexed_block', value: toBlock.toString() }).run();
+    }
+
+    console.log(`✅ Indexación completada hasta el bloque ${toBlock}`);
+  } catch (error) {
+    console.error("❌ Error en el indexador scheduled:", error);
+  }
+}

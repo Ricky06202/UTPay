@@ -21,6 +21,21 @@ const RPC_URL = Platform.OS === 'web'
 
 const CHAIN_ID = 2026;
 
+// Dirección del contrato UTPay
+export const CONTRACT_ADDRESS = '0x948B3c65b89DF0B4894ABE91E6D02FE579834F8F';
+
+// ABI del contrato UTPay
+export const CONTRACT_ABI = [
+    "function registerStudent(string memory _email, address _wallet) public",
+    "function updateWallet(string memory _email, address _newWallet) public",
+    "function mint(string memory _email, uint256 _amount) public",
+    "function transferByEmail(string memory _toEmail, uint256 _amount, string memory _metadata) public",
+    "function getBalance(string memory _email) public view returns (uint256)",
+    "function getEmailByWallet(address _wallet) public view returns (string memory)",
+    "event Transfer(string indexed fromEmail, string indexed toEmail, uint256 amount, string metadata)",
+    "event WalletUpdated(string indexed email, address oldWallet, address newWallet)"
+];
+
 // Provider para conectarse a la blockchain
 export const provider = new ethers.providers.JsonRpcProvider(RPC_URL, {
   name: 'utpay',
@@ -28,16 +43,24 @@ export const provider = new ethers.providers.JsonRpcProvider(RPC_URL, {
 });
 
 /**
- * Obtiene el balance de una dirección en UTP
- * @param address Dirección de la billetera
+ * Obtiene el contrato conectado al provider o a una wallet
+ */
+export const getUTPayContract = (walletOrProvider: ethers.Signer | ethers.providers.Provider = provider) => {
+  return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, walletOrProvider);
+};
+
+/**
+ * Obtiene el balance de un estudiante por su EMAIL (Abstracción de Identidad)
+ * @param email Correo del estudiante
  * @returns Balance formateado en UTP
  */
-export const getUTPBalance = async (address: string): Promise<string> => {
+export const getUTPBalance = async (email: string): Promise<string> => {
   try {
-    const balance = await provider.getBalance(address);
+    const contract = getUTPayContract();
+    const balance = await contract.getBalance(email);
     return ethers.utils.formatEther(balance);
   } catch (error) {
-    console.error('Error al obtener balance de Besu:', error);
+    console.error('Error al obtener balance de UTPay:', error);
     return '0.0';
   }
 };
