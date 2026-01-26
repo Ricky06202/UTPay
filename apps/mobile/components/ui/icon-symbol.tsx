@@ -33,6 +33,19 @@ const MAPPING = {
   'exclamationmark.circle': 'error',
   'questionmark.circle': 'help',
   'info.circle': 'info',
+  'eye': 'visibility',
+  'eye.slash': 'visibility-off',
+  'doc.on.doc': 'content-copy',
+  'lock.fill': 'lock',
+  'key.fill': 'vpn-key',
+  'xmark.circle.fill': 'cancel',
+  'exclamationmark.triangle.fill': 'warning',
+  'person.2.fill': 'people',
+  'plus': 'add',
+  'trash.fill': 'delete',
+  'person.crop.circle.badge.plus': 'person-add',
+  'arrow.up.right.circle.fill': 'arrow-circle-up',
+  'arrow.down.left.circle.fill': 'arrow-circle-down',
 } as const;
 
 export type IconSymbolName = keyof typeof MAPPING;

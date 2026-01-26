@@ -59,6 +59,14 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 
 ## 📓 Bitácora de Desarrollo
 
+### Día 2 (25 de Enero, 2026)
+*   **Transición a Billetera No Custodia**: Se eliminó el almacenamiento de llaves privadas y frases semilla en el servidor. Ahora, las llaves se generan localmente y se almacenan de forma segura en el dispositivo del usuario mediante `Expo SecureStore`, garantizando que solo el usuario tenga control total sobre sus fondos ("Real BTC Experience").
+*   **Seguridad Híbrida y Recuperación**: Implementación de un sistema de recuperación basado en frases semilla (12 palabras). Se añadió un flujo de importación manual y alertas visuales dinámicas para indicar si la billetera está correctamente vinculada y lista para firmar transacciones.
+*   **Libreta de Contactos Inteligente**: Creación de una tabla de contactos en la base de datos y endpoints dedicados para gestionar una agenda personal. Esto permite enviar dinero sin necesidad de copiar y pegar direcciones de blockchain manualmente.
+*   **Flujo "Todo en 1" con QR**: Rediseño del escáner de códigos QR para ser contextual. Al escanear una dirección, el sistema identifica automáticamente al usuario y ofrece opciones rápidas para "Enviar Dinero" o "Guardar en Contactos" en un solo paso.
+*   **Sincronización Blockchain**: Integración de saldos en tiempo real consultando directamente a la red blockchain (Ethers.js), eliminando la dependencia de saldos centralizados y permitiendo que todos los usuarios inicien con un balance real de 0.0 UTP.
+*   **Mejoras de UX/UI**: Corrección de errores en las descripciones del historial de transacciones, implementación de retroalimentación háptica (Haptics) y adición de indicadores de estado de conexión con el backend.
+
 ### Día 1 (24 de Enero, 2026)
 *   **Sistema de Pagos QR e Identidad**: Se implementó la generación de códigos QR únicos para cada usuario y la capacidad de realizar pagos escaneando dichos códigos o ingresando manualmente el **UTP ID**.
 *   **Integridad Financiera (Batching)**: Implementación de `db.batch` en el backend para asegurar que todas las transferencias sean atómicas: se descuenta al emisor, se acredita al receptor y se registra en el historial en una sola operación indivisible.

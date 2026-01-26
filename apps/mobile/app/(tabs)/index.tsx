@@ -2,8 +2,12 @@ import { LogoutButton } from '@/components/LogoutButton';
 import { FeedbackModal } from '@/components/ui/FeedbackModal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { API_URL } from '@/constants/api';
+import { getUTPBalance, getWallet } from '@/constants/blockchain';
 import { useAuth } from '@/context/auth';
+import { ethers, Wallet } from 'ethers';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -11,22 +15,6 @@ import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const isWeb = Platform.OS === 'web';
-
-// Función para decorar el ID: 1 -> UTP-0001
-const formatUTPId = (id: number | string | undefined) => {
-  if (!id) return 'UTP-0000';
-  const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
-  if (isNaN(numericId)) return 'UTP-0000';
-  return `UTP-${numericId.toString().padStart(4, '0')}`;
-};
-
-// Función para revertir la decoración: acepta "UTP-0001", "0001" o "1"
-const parseUTPId = (id: string) => {
-  // Eliminar el prefijo UTP- si existe
-  const cleanId = id.replace('UTP-', '');
-  const numericId = parseInt(cleanId, 10);
-  return isNaN(numericId) ? null : numericId;
-};
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -37,12 +25,28 @@ export default function HomeScreen() {
   const [isScannerVisible, setIsScannerVisible] = useState(false);
   const [verificationStep, setVerificationStep] = useState<'input' | 'confirm'>('input');
   const [isVerifying, setIsVerifying] = useState(false);
-  const [recipientData, setRecipientData] = useState<{ name: string; email: string } | null>(null);
+  const [recipientData, setRecipientData] = useState<any>(null);
   const [receiverUTPId, setReceiverUTPId] = useState('');
   const [amount, setAmount] = useState('');
+  const [comment, setComment] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
+  const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
+
+  // Estados para Libreta de Contactos
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [isContactsModalVisible, setIsContactsModalVisible] = useState(false);
+  const [isAddContactModalVisible, setIsAddContactModalVisible] = useState(false);
+  const [newContactName, setNewContactName] = useState('');
+  const [newContactAddress, setNewContactAddress] = useState('');
+  const [isAddingContact, setIsAddingContact] = useState(false);
+  const [qrMode, setQrMode] = useState<'send' | 'add_contact'>('send');
+  const [isScanResultModalVisible, setIsScanResultModalVisible] = useState(false);
+  const [scannedAddress, setScannedAddress] = useState('');
+  const [scannedUser, setScannedUser] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
 
   // Feedback Modal State
   const [feedback, setFeedback] = useState<{
@@ -59,23 +63,42 @@ export default function HomeScreen() {
 
   const router = useRouter();
   const { user, signOut, updateUser, refreshUser } = useAuth();
+  const [showNoKeyAlert, setShowNoKeyAlert] = useState(false);
+  const [importingSeed, setImportingSeed] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+
+  const fetchBlockchainBalance = async () => {
+    if (!user?.walletAddress) return;
+    const balance = await getUTPBalance(user.walletAddress);
+    setBlockchainBalance(balance);
+  };
 
   useEffect(() => {
     checkBackend();
     if (user) {
       fetchHistory();
-      refreshUser(); // Actualizar saldo al cargar
+      fetchBlockchainBalance();
+      fetchContacts();
+
+      // Solo mostramos la alerta si NO hay llave Y NO la acabamos de importar
+      // Usamos un pequeño delay o verificamos si ya se cerró manualmente
+      if (!user.privateKey) {
+        setShowNoKeyAlert(true);
+      } else {
+        setShowNoKeyAlert(false);
+      }
     }
 
     // Intervalo para refrescar el historial automáticamente cada 15 segundos
     const historyInterval = setInterval(() => {
       if (user) {
         fetchHistory();
+        fetchBlockchainBalance();
       }
     }, 15000);
 
     return () => clearInterval(historyInterval);
-  }, [user?.id]);
+  }, [user?.id, user?.privateKey]);
 
   const checkBackend = async () => {
     try {
@@ -85,7 +108,7 @@ export default function HomeScreen() {
       setBackendStatus('ok');
       if (user) {
         fetchHistory();
-        refreshUser();
+        // refreshUser(); // Comentado para evitar sobrescribir llaves locales
       }
     } catch (error) {
       setBackendStatus('error');
@@ -107,6 +130,92 @@ export default function HomeScreen() {
     }
   };
 
+  const fetchContacts = async () => {
+    if (!user?.id) return;
+    try {
+      const response = await fetch(`${API_URL}/contacts/${user.id}`);
+      const data = await response.json();
+      if (data.success) {
+        setContacts(data.contacts);
+      }
+    } catch (error) {
+      console.error('Error fetching contacts:', error);
+    }
+  };
+
+  const handleAddContact = async () => {
+    if (!newContactName || !newContactAddress) {
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: 'Por favor completa todos los campos'
+      });
+      return;
+    }
+
+    if (!newContactAddress.startsWith('0x') || newContactAddress.length !== 42) {
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Dirección Inválida',
+        message: 'La dirección debe empezar con 0x y tener 42 caracteres'
+      });
+      return;
+    }
+
+    try {
+      setIsAddingContact(true);
+      const response = await fetch(`${API_URL}/contacts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user?.id,
+          contactName: newContactName,
+          walletAddress: newContactAddress
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setFeedback({
+          visible: true,
+          type: 'success',
+          title: 'Contacto Guardado',
+          message: `${newContactName} ha sido agregado a tu libreta`
+        });
+        setNewContactName('');
+        setNewContactAddress('');
+        setIsAddContactModalVisible(false);
+        fetchContacts();
+      } else {
+        setFeedback({
+          visible: true,
+          type: 'error',
+          title: 'Error',
+          message: data.message || data.error || 'No se pudo agregar el contacto'
+        });
+      }
+    } catch (error) {
+      console.error('Error adding contact:', error);
+    } finally {
+      setIsAddingContact(false);
+    }
+  };
+
+  const handleDeleteContact = async (id: number) => {
+    try {
+      const response = await fetch(`${API_URL}/contacts/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchContacts();
+      }
+    } catch (error) {
+      console.error('Error deleting contact:', error);
+    }
+  };
+
   const handleAmountChange = (text: string) => {
     // 1. Eliminar cualquier cosa que no sea número o punto
     let cleaned = text.replace(/[^0-9.]/g, '');
@@ -125,40 +234,67 @@ export default function HomeScreen() {
     setAmount(cleaned);
   };
 
-  const onBarcodeScanned = ({ data }: { data: string }) => {
+  const onBarcodeScanned = async ({ data }: { data: string }) => {
     setIsScannerVisible(false);
-    // Verificar si el código escaneado es un ID de UTPay válido
-    if (data.startsWith('UTP-')) {
-      const numericId = data.replace('UTP-', '');
-      setReceiverUTPId(numericId);
-      // Solo abrimos el modal para que el usuario ingrese el monto
-      setIsSendModalVisible(true);
-      setVerificationStep('input');
+    // Verificar si el código escaneado es una dirección de Ethereum válida
+    if (data.startsWith('0x') && data.length === 42) {
+      if (qrMode === 'add_contact') {
+        setNewContactAddress(data);
+        setIsAddContactModalVisible(true);
+        
+        // Intentar buscar el nombre del usuario automáticamente
+        try {
+          const response = await fetch(`${API_URL}/users/verify-address/${data}`);
+          const result = await response.json();
+          if (result.success && result.user) {
+            setNewContactName(result.user.name);
+          }
+        } catch (e) {
+          console.error('Error auto-fetching name:', e);
+        }
+      } else {
+        // Modo dashboard: Mostrar modal de resultado "Todo en 1"
+        setScannedAddress(data);
+        setIsScanResultModalVisible(true);
+        
+        // Intentar buscar el usuario para mostrar su nombre
+        try {
+          const response = await fetch(`${API_URL}/users/verify-address/${data}`);
+          const result = await response.json();
+          if (result.success && result.user) {
+            setScannedUser(result.user);
+          } else {
+            setScannedUser(null);
+          }
+        } catch (e) {
+          console.error('Error fetching user info:', e);
+          setScannedUser(null);
+        }
+      }
     } else {
       setFeedback({
         visible: true,
         type: 'error',
         title: 'QR Inválido',
-        message: 'El código QR escaneado no es un identificador válido de UTPay.'
+        message: 'El código QR escaneado no es una dirección válida de UTPay (Blockchain).'
       });
     }
   };
 
   const handleVerifyRecipient = async (idToVerify?: string) => {
-    const targetId = idToVerify || receiverUTPId;
-    const numericId = parseUTPId(targetId);
+    const targetAddress = idToVerify || receiverUTPId;
 
-    if (!numericId || !amount) {
+    if (!targetAddress || targetAddress.length < 40 || !amount) {
       setFeedback({
         visible: true,
         type: 'error',
         title: 'Campos incompletos',
-        message: 'Por favor ingresa un Número UTPay válido y un monto.'
+        message: 'Por favor ingresa una dirección de Blockchain válida y un monto.'
       });
       return;
     }
 
-    if (numericId === user?.id) {
+    if (targetAddress.toLowerCase() === user?.walletAddress?.toLowerCase()) {
       setFeedback({
         visible: true,
         type: 'error',
@@ -170,7 +306,7 @@ export default function HomeScreen() {
 
     try {
       setIsVerifying(true);
-      const response = await fetch(`${API_URL}/auth/me/${numericId}`);
+      const response = await fetch(`${API_URL}/users/verify-address/${targetAddress}`);
       const data = await response.json();
 
       if (data.success) {
@@ -179,10 +315,10 @@ export default function HomeScreen() {
         setIsSendModalVisible(true);
       } else {
         setFeedback({
-          visible: true,
           type: 'error',
+          visible: true,
           title: 'Usuario no encontrado',
-          message: 'No existe ningún usuario con ese Número UTPay.'
+          message: data.message || 'No existe ningún usuario con esa dirección.'
         });
       }
     } catch (error) {
@@ -190,16 +326,17 @@ export default function HomeScreen() {
       setFeedback({
         visible: true,
         type: 'error',
-        title: 'Error de conexión',
-        message: 'No se pudo verificar el usuario.'
+        title: 'Error de Conexión',
+        message: 'No se pudo verificar al receptor. Revisa tu conexión.'
       });
     } finally {
-       setIsVerifying(false);
-     }
-   };
+      setIsVerifying(false);
+    }
+  };
 
-   const handleOpenScanner = async () => {
-     if (isWeb) {
+  const handleOpenScanner = async (mode: 'send' | 'add_contact' = 'send') => {
+    setQrMode(mode);
+    if (isWeb) {
        setFeedback({
          visible: true,
          type: 'info',
@@ -224,64 +361,159 @@ export default function HomeScreen() {
      setIsScannerVisible(true);
    };
 
-   const handleSendMoney = async () => {
-    const numericReceiverId = parseUTPId(receiverUTPId);
+  const handleDirectImport = async () => {
+    if (!importingSeed || importingSeed.trim().split(/\s+/).length !== 12) {
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: 'Por favor ingresa las 12 palabras de tu frase semilla.'
+      });
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const cleanSeed = importingSeed.trim().toLowerCase().replace(/\s+/g, ' ');
+      
+      let wallet;
+      try {
+        wallet = Wallet.fromMnemonic(cleanSeed);
+      } catch (e) {
+        const hash = ethers.utils.id(cleanSeed);
+        wallet = new Wallet(hash);
+      }
+      
+      if (user) {
+        const updatedUser = {
+          ...user,
+          privateKey: wallet.privateKey,
+          seedPhrase: cleanSeed
+        };
+        
+        // Primero actualizamos el estado global
+        await updateUser(updatedUser);
+        
+        // Log para verificar en consola
+        console.log('Wallet imported successfully. Private key present:', !!wallet.privateKey);
+        
+        setShowNoKeyAlert(false);
+        setImportingSeed('');
+        setFeedback({
+          visible: true,
+          type: 'success',
+          title: '¡Billetera Vinculada!',
+          message: 'Tu billetera ha sido restaurada. El indicador debería cambiar a verde ahora.'
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        visible: true,
+        type: 'error',
+        title: 'Error',
+        message: err.message
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleSendMoney = async () => {
+    console.log('Attempting to send money...');
+    console.log('User private key available:', !!user?.privateKey);
     
-    if (!numericReceiverId || !amount) return;
+    if (!recipientData?.id || !amount || !user?.privateKey) {
+      setFeedback({
+        visible: true,
+        type: 'error', 
+        title: 'Error de Llaves',
+        message: 'No se encontró tu llave privada local para firmar la transacción. Intenta importar tu billetera de nuevo.'
+      });
+      return;
+    }
 
     try {
       setIsSending(true);
+
+      // 0. Validar saldo antes de proceder (Balance Local vs Monto)
+      const currentBalance = parseFloat(blockchainBalance || '0');
+      const sendAmount = parseFloat(amount);
+      
+      if (currentBalance < sendAmount) {
+        setFeedback({
+          visible: true,
+          type: 'error',
+          title: 'Saldo Insuficiente',
+          message: `No tienes suficientes UTP en tu billetera blockchain. Saldo actual: ${currentBalance} UTP`
+        });
+        setIsSending(false);
+        return;
+      }
+
+      // 1. Firmar y enviar transacción a la Blockchain (Besu) usando la llave privada local
+      let txHash = '';
+      try {
+        const wallet = getWallet(user.privateKey);
+        
+        // Codificar el comentario en Hexadecimal para guardarlo "On-Chain"
+        // Solo guardamos el comentario si el usuario lo escribió, para mantener el anonimato.
+        // NO incluimos nombres reales en la blockchain.
+        const memo = comment || "";
+        const hexMemo = memo ? ethers.utils.hexlify(ethers.utils.toUtf8Bytes(memo)) : "0x";
+
+        const tx = await wallet.sendTransaction({
+          to: recipientData.walletAddress,
+          value: ethers.utils.parseEther(amount),
+          data: hexMemo, // Solo lleva el comentario si existe
+        });
+        txHash = tx.hash;
+        console.log('Blockchain Transaction Sent with Memo:', txHash);
+      } catch (blockchainError: any) {
+        console.error('Blockchain Error:', blockchainError);
+        throw new Error('Error al firmar transacción: ' + (blockchainError.message || 'Error desconocido'));
+      }
+
+      // 2. Notificar al backend para actualizar la base de datos y el historial
       const response = await fetch(`${API_URL}/transactions/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          senderId: user?.id,
-          receiverId: numericReceiverId,
+          senderId: user.id,
+          receiverId: recipientData.id,
           amount: parseFloat(amount),
-          description: 'Transferencia UTPay'
+          description: comment ? comment : `A: ${recipientData.name}`,
+          txHash: txHash
         })
       });
 
       const data = await response.json();
 
       if (data.success) {
+        setFeedback({
+          visible: true,
+          type: 'success', 
+          title: '¡Éxito!',
+          message: `Has enviado ${amount} UTP. La transacción ha sido firmada localmente y enviada a la red.`
+        });
         setIsSendModalVisible(false);
-        setVerificationStep('input');
-        setRecipientData(null);
         setReceiverUTPId('');
         setAmount('');
+        setComment('');
+        setRecipientData(null);
+        setVerificationStep('input');
         
-        // Actualizar saldo localmente
-        if (user) {
-          updateUser({
-            ...user,
-            balance: user.balance - parseFloat(amount)
-          });
-        }
-        
-        setFeedback({
-          visible: true,
-          type: 'success',
-          title: '¡Transferencia Exitosa!',
-          message: `Has enviado $${parseFloat(amount).toFixed(2)} correctamente.`
-        });
-        
-        fetchHistory(); // Recargar historial
+        fetchHistory();
+        refreshUser();
+        fetchBlockchainBalance();
       } else {
-        setFeedback({
-          visible: true,
-          type: 'error',
-          title: 'Error en el envío',
-          message: data.message || 'No se pudo completar la transferencia.'
-        });
+        throw new Error(data.message || 'Error al procesar el envío');
       }
-    } catch (error) {
-      console.error('Error sending money:', error);
+    } catch (err: any) {
       setFeedback({
         visible: true,
         type: 'error',
-        title: 'Error de conexión',
-        message: 'Hubo un problema al conectar con el servidor.'
+        title: 'Error en el envío',
+        message: err.message || 'No se pudo completar la transferencia.'
       });
     } finally {
       setIsSending(false);
@@ -295,6 +527,7 @@ export default function HomeScreen() {
       setRecipientData(null);
       setReceiverUTPId('');
       setAmount('');
+      setComment('');
     }, 300);
   };
 
@@ -352,7 +585,15 @@ export default function HomeScreen() {
                 {/* Card de Saldo */}
                 <View className={`bg-blue-600 rounded-[40px] p-8 shadow-2xl shadow-blue-500/30 ${isWeb ? 'flex-1 mb-0' : 'mb-6'}`}>
                   <Text className="mb-1 text-base font-medium text-blue-100">Saldo disponible</Text>
-                  <Text className="mb-6 text-5xl font-bold text-white">$ {user?.balance?.toFixed(2) || '0.00'}</Text>
+                  <Text className="mb-2 text-5xl font-bold text-white">
+                    $ {blockchainBalance ? parseFloat(blockchainBalance).toFixed(2) : (user?.balance?.toFixed(2) || '0.00')}
+                  </Text>
+                  {blockchainBalance && (
+                    <Text className="mb-6 text-xs font-medium text-blue-200/60">
+                      Sincronizado con Blockchain ⛓️
+                    </Text>
+                  )}
+                  {!blockchainBalance && <View className="mb-6" />}
                   <View className="flex-row space-x-3">
                     <TouchableOpacity className="flex-1 justify-center items-center h-12 rounded-xl bg-white/20">
                       <Text className="font-bold text-white">Recargar</Text>
@@ -399,7 +640,7 @@ export default function HomeScreen() {
                   { name: 'Tareas', icon: 'assignment', color: 'bg-green-100 dark:bg-green-900/30', iconColor: '#22c55e', action: () => router.push('/missions') },
                   { name: 'Transporte', icon: 'bus', color: 'bg-orange-100 dark:bg-orange-900/30', iconColor: '#f97316' },
                   { name: 'Cafetería', icon: 'coffee', color: 'bg-blue-100 dark:bg-blue-900/30', iconColor: '#3b82f6' },
-                  { name: 'Biblioteca', icon: 'book', color: 'bg-red-100 dark:bg-red-900/30', iconColor: '#ef4444' },
+                  { name: 'Contactos', icon: 'person.2.fill', color: 'bg-red-100 dark:bg-red-900/30', iconColor: '#ef4444', action: () => setIsContactsModalVisible(true) },
                   { name: 'Mi QR', icon: 'account.circle', color: 'bg-gray-100 dark:bg-gray-800', iconColor: '#6b7280', action: () => setIsQRModalVisible(true) }
                 ].map((action, index) => (
                   <TouchableOpacity 
@@ -418,6 +659,78 @@ export default function HomeScreen() {
 
             {/* Columna Derecha: Actividad (Solo en PC) */}
             <View className={isWeb ? 'flex-1' : 'mt-10 w-full'}>
+              {/* Sección de Mi Billetera Blockchain */}
+              <View className="p-6 mb-8 w-full bg-white rounded-3xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
+                <View className="flex-row items-center mb-6">
+                  <View className="p-2 mr-3 bg-blue-100 rounded-lg dark:bg-blue-900/30">
+                    <IconSymbol name="lock.fill" size={20} color="#2563eb" />
+                  </View>
+                  <Text className="text-xl font-bold text-gray-900 dark:text-white">Mi Billetera Blockchain</Text>
+                </View>
+                
+                <View className="gap-y-6">
+                  <View>
+                    <Text className="mb-2 text-xs font-bold tracking-widest text-gray-400 uppercase">Dirección Pública</Text>
+                    <View className="flex-row justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 dark:bg-gray-700/50 dark:border-gray-700">
+                      <Text className="flex-1 mr-4 font-mono text-xs text-gray-600 dark:text-gray-300" numberOfLines={1}>
+                        {user?.walletAddress || 'No generada'}
+                      </Text>
+                      <TouchableOpacity 
+                        style={{ 
+                          padding: 10, 
+                          backgroundColor: 'rgba(37, 99, 235, 0.1)', 
+                          borderRadius: 12 
+                        }}
+                        onPress={async () => {
+                          if (user?.walletAddress) {
+                            if (Platform.OS !== 'web') {
+                              await Clipboard.setStringAsync(user.walletAddress);
+                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            } else {
+                              navigator.clipboard.writeText(user.walletAddress);
+                            }
+                            setFeedback({
+                              visible: true,
+                              type: 'success',
+                              title: 'Copiado',
+                              message: 'Dirección copiada al portapapeles.'
+                            });
+                          }
+                        }}
+                      >
+                        <IconSymbol name="doc.on.doc" size={20} color="#2563eb" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity 
+                    onPress={() => setShowNoKeyAlert(true)}
+                    className={`p-4 rounded-2xl flex-row items-center border ${
+                      user?.privateKey 
+                        ? 'bg-green-50 dark:bg-green-900/10 border-green-100 dark:border-green-900/20' 
+                        : 'bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/20'
+                    }`}
+                  >
+                    <View className={`p-2 mr-3 rounded-lg ${user?.privateKey ? 'bg-green-600' : 'bg-blue-600'}`}>
+                      <IconSymbol name={user?.privateKey ? 'checkmark.circle.fill' : 'key.fill'} size={16} color="white" />
+                    </View>
+                    <View className="flex-1">
+                      <Text className={`font-bold text-sm ${user?.privateKey ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                        {user?.privateKey ? 'Billetera Vinculada' : 'Importar Frase Secreta'}
+                      </Text>
+                      <Text className={`text-[10px] ${user?.privateKey ? 'text-green-600/60 dark:text-green-400/60' : 'text-blue-600/60 dark:text-blue-400/60'}`}>
+                        {user?.privateKey ? 'Llave cargada y lista para firmar' : 'Para firmar transacciones localmente'}
+                      </Text>
+                    </View>
+                    {user?.privateKey && (
+                      <View className="mr-2 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 rounded-full">
+                        <Text className="text-[8px] font-bold text-green-700 dark:text-green-300 uppercase">Seguro</Text>
+                      </View>
+                    )}
+                    <IconSymbol name="chevron.right" size={16} color={user?.privateKey ? '#16a34a' : '#2563eb'} />
+                  </TouchableOpacity>
+                </View>
+              </View>
               <View className="bg-white dark:bg-gray-800 rounded-[40px] p-8 shadow-sm border border-gray-50 dark:border-gray-700">
                 <Text className="mb-6 text-xl font-bold text-gray-800 dark:text-white">Actividad Reciente</Text>
                 
@@ -430,7 +743,14 @@ export default function HomeScreen() {
                     const isExpense = item.senderId === user?.id;
                     const displayName = isExpense ? `A: ${item.receiverName}` : `De: ${item.senderName}`;
                     return (
-                      <View key={i} className="flex-row justify-between items-center mb-6 last:mb-0">
+                      <TouchableOpacity 
+                        key={i} 
+                        onPress={() => {
+                          setSelectedTransaction(item);
+                          setIsDetailModalVisible(true);
+                        }}
+                        className="flex-row justify-between items-center mb-6 last:mb-0"
+                      >
                         <View className="overflow-hidden flex-row flex-1 items-center mr-4">
                           <View className={`h-10 w-10 rounded-full items-center justify-center mr-3 flex-shrink-0 ${!isExpense ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
                             <IconSymbol 
@@ -445,7 +765,9 @@ export default function HomeScreen() {
                               numberOfLines={1}
                               ellipsizeMode="tail"
                             >
-                              {item.description === 'Transferencia UTPay' ? displayName : item.description}
+                              {item.description && (item.description.startsWith('A: ') || item.description.startsWith('De: ')) 
+                                ? item.description 
+                                : displayName}
                             </Text>
                             <Text className="text-xs text-gray-400" numberOfLines={1}>
                               {new Date(item.createdAt).toLocaleDateString()}
@@ -457,7 +779,7 @@ export default function HomeScreen() {
                             {!isExpense ? '+' : '-'}${item.amount.toFixed(2)}
                           </Text>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })
                 )}
@@ -488,31 +810,46 @@ export default function HomeScreen() {
                 <>
                   <Text className="mb-6 text-2xl font-bold text-center text-gray-900 dark:text-white">Enviar UTP Coins</Text>
                   
-                  <Text className="mb-2 ml-2 text-gray-500">Número UTPay del receptor</Text>
+                  <Text className="mb-2 ml-2 text-gray-500">Dirección del receptor (Blockchain)</Text>
                   <View className="flex-row items-center p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700">
-                    <Text className="mr-1 text-lg font-bold text-gray-400">UTP-</Text>
                     <TextInput
-                      className="flex-1 text-lg font-bold dark:text-white"
-                      placeholder="0000"
+                      className="flex-1 font-mono text-xs dark:text-white"
+                      placeholder="0x..."
                       placeholderTextColor="#9ca3af"
                       value={receiverUTPId}
                       onChangeText={(text) => {
-                        // Solo permitir números y limitar longitud a 4 dígitos
-                        const numericText = text.replace(/[^0-9]/g, '').slice(0, 4);
-                        setReceiverUTPId(numericText);
+                        setReceiverUTPId(text);
                       }}
-                      keyboardType="numeric"
                     />
+                    <TouchableOpacity 
+                      onPress={() => {
+                        setIsSendModalVisible(false);
+                        setIsContactsModalVisible(true);
+                      }}
+                      className="p-2 ml-2 bg-blue-100 rounded-lg dark:bg-blue-900/30"
+                    >
+                      <IconSymbol name="person.2.fill" size={20} color="#2563eb" />
+                    </TouchableOpacity>
                   </View>
 
-                  <Text className="mb-2 ml-2 text-gray-500">Monto (UTP)</Text>
+                  <Text className="mb-2 font-bold text-gray-700 dark:text-gray-300">Monto a enviar (UTP)</Text>
                   <TextInput
-                    className="p-4 mb-8 text-2xl font-bold bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
+                    className="p-4 mb-4 text-2xl font-black text-blue-600 bg-gray-50 rounded-2xl dark:bg-gray-700"
                     placeholder="0.00"
                     placeholderTextColor="#9ca3af"
+                    keyboardType="numeric"
                     value={amount}
                     onChangeText={handleAmountChange}
-                    keyboardType="numeric"
+                  />
+
+                  <Text className="mb-2 font-bold text-gray-700 dark:text-gray-300">Comentario (Opcional)</Text>
+                  <TextInput
+                    className="p-4 mb-6 text-gray-700 bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
+                    placeholder="¿Para qué es este envío?"
+                    placeholderTextColor="#9ca3af"
+                    value={comment}
+                    onChangeText={setComment}
+                    maxLength={50}
                   />
 
                   <View className="flex-row space-x-4">
@@ -551,9 +888,16 @@ export default function HomeScreen() {
                       <View className="items-end">
                         <Text className="text-lg font-bold text-gray-900 dark:text-white">{recipientData?.name}</Text>
                         <Text className="mb-1 text-xs text-gray-500 dark:text-gray-400">{recipientData?.email}</Text>
-                        <Text className="font-bold tracking-widest text-blue-600">{formatUTPId(receiverUTPId)}</Text>
+                        <Text className="text-[10px] font-mono text-blue-600 truncate w-32" numberOfLines={1}>{receiverUTPId}</Text>
                       </View>
                     </View>
+
+                    {comment ? (
+                      <View className="pb-4 mb-4 border-b border-gray-200 dark:border-gray-600">
+                        <Text className="mb-1 text-gray-500 dark:text-gray-400">Mensaje:</Text>
+                        <Text className="italic text-gray-700 dark:text-gray-300">"{comment}"</Text>
+                      </View>
+                    ) : null}
                     
                     <View className="flex-row justify-between items-center">
                       <Text className="text-gray-500 dark:text-gray-400">Monto total:</Text>
@@ -587,6 +931,77 @@ export default function HomeScreen() {
           </View>
         </Modal>
 
+        {/* Modal para ver detalles de la transacción */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={isDetailModalVisible}
+          onRequestClose={() => setIsDetailModalVisible(false)}
+        >
+          <View className="flex-1 justify-end bg-black/50">
+            <View className="bg-white dark:bg-gray-800 p-8 rounded-t-[50px] shadow-2xl">
+              <View className="items-center mb-6">
+                <View className="w-12 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mb-6" />
+                <View className={`p-4 mb-4 rounded-full ${selectedTransaction?.senderId === user?.id ? 'bg-red-50 dark:bg-red-900/20' : 'bg-green-50 dark:bg-green-900/20'}`}>
+                  <IconSymbol 
+                    name={selectedTransaction?.senderId === user?.id ? 'arrow.up.right.circle.fill' : 'arrow.down.left.circle.fill'} 
+                    size={40} 
+                    color={selectedTransaction?.senderId === user?.id ? '#ef4444' : '#22c55e'} 
+                  />
+                </View>
+                <Text className="text-3xl font-black text-gray-900 dark:text-white">
+                  {selectedTransaction?.senderId === user?.id ? '-' : '+'}${selectedTransaction?.amount?.toFixed(2)} UTP
+                </Text>
+                <Text className="text-gray-500 dark:text-gray-400 mt-1">
+                  {selectedTransaction ? new Date(selectedTransaction.createdAt).toLocaleString() : ''}
+                </Text>
+              </View>
+
+              <View className="bg-gray-50 dark:bg-gray-700/50 p-6 rounded-3xl mb-8">
+                <View className="flex-row justify-between mb-4 border-b border-gray-100 dark:border-gray-600 pb-4">
+                  <Text className="text-gray-500">Estado</Text>
+                  <View className="flex-row items-center">
+                    <View className="w-2 h-2 bg-green-500 rounded-full mr-2" />
+                    <Text className="font-bold text-green-600">Completado</Text>
+                  </View>
+                </View>
+
+                <View className="flex-row justify-between mb-4 border-b border-gray-100 dark:border-gray-600 pb-4">
+                  <Text className="text-gray-500">
+                    {selectedTransaction?.senderId === user?.id ? 'Enviado a' : 'Recibido de'}
+                  </Text>
+                  <Text className="font-bold text-gray-900 dark:text-white">
+                    {selectedTransaction?.senderId === user?.id ? selectedTransaction?.receiverName : selectedTransaction?.senderName}
+                  </Text>
+                </View>
+
+                <View className="mb-4">
+                  <Text className="text-gray-500 mb-2">Comentario / Descripción</Text>
+                  <Text className="text-gray-800 dark:text-gray-200 italic">
+                    "{selectedTransaction?.description || 'Sin comentario'}"
+                  </Text>
+                </View>
+
+                {selectedTransaction?.txHash && (
+                  <View className="mt-2 pt-4 border-t border-gray-100 dark:border-gray-600">
+                    <Text className="text-gray-500 mb-1">Hash de Transacción (Blockchain)</Text>
+                    <Text className="text-[10px] font-mono text-blue-600 dark:text-blue-400">
+                      {selectedTransaction.txHash}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <TouchableOpacity 
+                onPress={() => setIsDetailModalVisible(false)}
+                className="justify-center items-center w-full h-14 bg-gray-900 rounded-2xl dark:bg-gray-700"
+              >
+                <Text className="text-lg font-bold text-white">Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
         {/* Modal para mostrar mi QR */}
         <Modal
           animationType="fade"
@@ -605,7 +1020,7 @@ export default function HomeScreen() {
               
               <View className="p-6 bg-white rounded-[40px] shadow-sm border border-gray-100">
                 <QRCode
-                  value={formatUTPId(user?.id)}
+                  value={user?.walletAddress || 'no-address'}
                   size={200}
                   color="#1f2937"
                   backgroundColor="white"
@@ -613,8 +1028,8 @@ export default function HomeScreen() {
               </View>
               
               <View className="px-6 py-3 mt-8 bg-gray-50 rounded-full dark:bg-gray-700">
-                <Text className="text-xl font-black tracking-widest text-blue-600 dark:text-blue-400">
-                  {formatUTPId(user?.id)}
+                <Text className="text-[10px] font-mono text-blue-600 dark:text-blue-400">
+                  {user?.walletAddress || 'Sin dirección'}
                 </Text>
               </View>
               
@@ -670,6 +1085,243 @@ export default function HomeScreen() {
           onClose={() => setFeedback({ ...feedback, visible: false })}
         />
 
+        {/* Modal de Libreta de Contactos */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={isContactsModalVisible}
+          onRequestClose={() => setIsContactsModalVisible(false)}
+        >
+          <View className="flex-1 justify-end bg-black/50">
+            <View className="bg-white dark:bg-gray-800 p-8 rounded-t-[50px] h-[80%] shadow-2xl">
+              <View className="flex-row justify-between items-center mb-6">
+                <Text className="text-2xl font-bold text-gray-900 dark:text-white">Libreta de Contactos</Text>
+                <TouchableOpacity 
+                  onPress={() => setIsAddContactModalVisible(true)}
+                  className="p-2 bg-blue-100 rounded-full dark:bg-blue-900/30"
+                >
+                  <IconSymbol name="plus" size={20} color="#2563eb" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView className="flex-1">
+                {contacts.length === 0 ? (
+                  <View className="items-center py-20">
+                    <IconSymbol name="person.crop.circle.badge.plus" size={64} color="#d1d5db" />
+                    <Text className="mt-4 text-gray-500 text-center">Aún no tienes contactos guardados</Text>
+                  </View>
+                ) : (
+                  contacts.map((contact) => (
+                    <TouchableOpacity 
+                      key={contact.id}
+                      onPress={() => {
+                        setReceiverUTPId(contact.walletAddress);
+                        setIsContactsModalVisible(false);
+                        setIsSendModalVisible(true);
+                        setVerificationStep('input');
+                      }}
+                      className="flex-row items-center p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700/50"
+                    >
+                      <View className="w-12 h-12 bg-blue-100 rounded-full items-center justify-center mr-4 dark:bg-blue-900/30">
+                        <Text className="text-xl font-bold text-blue-600">{contact.contactName[0].toUpperCase()}</Text>
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-lg font-bold text-gray-900 dark:text-white">{contact.contactName}</Text>
+                        <Text className="text-xs text-gray-500 font-mono" numberOfLines={1}>{contact.walletAddress}</Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => handleDeleteContact(contact.id)}
+                        className="p-2"
+                      >
+                        <IconSymbol name="trash.fill" size={18} color="#ef4444" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </ScrollView>
+
+              <TouchableOpacity 
+                onPress={() => setIsContactsModalVisible(false)}
+                className="justify-center items-center w-full h-14 bg-gray-900 rounded-2xl dark:bg-gray-700 mt-4"
+              >
+                <Text className="text-lg font-bold text-white">Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Modal para Agregar Contacto */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={isAddContactModalVisible}
+          onRequestClose={() => setIsAddContactModalVisible(false)}
+        >
+          <View className="flex-1 justify-center items-center px-6 bg-black/60">
+            <View className="bg-white dark:bg-gray-800 w-full p-8 rounded-[40px] shadow-2xl">
+              <Text className="mb-6 text-2xl font-bold text-center text-gray-900 dark:text-white">Nuevo Contacto</Text>
+              
+              <Text className="mb-2 ml-2 text-gray-500">Nombre del contacto</Text>
+              <TextInput
+                className="p-4 mb-4 bg-gray-50 rounded-2xl dark:bg-gray-700 dark:text-white"
+                placeholder="Ej: Mi Papá"
+                placeholderTextColor="#9ca3af"
+                value={newContactName}
+                onChangeText={setNewContactName}
+              />
+
+              <Text className="mb-2 ml-2 text-gray-500">Dirección Blockchain (0x...)</Text>
+              <View className="flex-row items-center p-4 mb-6 bg-gray-50 rounded-2xl dark:bg-gray-700">
+                <TextInput
+                  className="flex-1 font-mono text-xs dark:text-white"
+                  placeholder="0x..."
+                  placeholderTextColor="#9ca3af"
+                  value={newContactAddress}
+                  onChangeText={setNewContactAddress}
+                />
+                <TouchableOpacity 
+                  onPress={() => {
+                    setIsAddContactModalVisible(false);
+                    handleOpenScanner('add_contact');
+                  }}
+                  className="p-2 ml-2 bg-purple-100 rounded-lg dark:bg-purple-900/30"
+                >
+                  <IconSymbol name="qr.code" size={20} color="#a855f7" />
+                </TouchableOpacity>
+              </View>
+
+              <View className="flex-row space-x-4">
+                <TouchableOpacity 
+                  onPress={() => setIsAddContactModalVisible(false)}
+                  className="flex-1 justify-center items-center h-14 bg-gray-100 rounded-2xl dark:bg-gray-700"
+                >
+                  <Text className="font-bold text-gray-600 dark:text-gray-300">Cancelar</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  onPress={handleAddContact}
+                  disabled={isAddingContact}
+                  className="justify-center items-center h-14 bg-blue-600 rounded-2xl flex-2"
+                >
+                  {isAddingContact ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="px-8 text-lg font-bold text-white">Guardar</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Modal de Resultado de Escaneo (Todo en 1) */}
+        <Modal
+          visible={isScanResultModalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setIsScanResultModalVisible(false)}
+        >
+          <View className="flex-1 justify-center items-center px-6 bg-black/60">
+            <View className="bg-white dark:bg-gray-800 w-full p-8 rounded-[40px] items-center">
+              <View className="p-4 mb-4 bg-blue-100 rounded-full dark:bg-blue-900/30">
+                <IconSymbol name="person.crop.circle.badge.plus" size={40} color="#2563eb" />
+              </View>
+              
+              <Text className="mb-1 text-2xl font-bold text-center text-gray-900 dark:text-white">
+                {scannedUser ? scannedUser.name : 'Usuario Desconocido'}
+              </Text>
+              <Text className="mb-6 font-mono text-xs text-center text-gray-500">
+                {scannedAddress}
+              </Text>
+
+              <View className="gap-y-4 w-full">
+                <TouchableOpacity 
+                  onPress={() => {
+                    setReceiverUTPId(scannedAddress);
+                    setIsScanResultModalVisible(false);
+                    setIsSendModalVisible(true);
+                    setVerificationStep('input');
+                  }}
+                  className="justify-center items-center w-full h-14 bg-blue-600 rounded-2xl shadow-sm"
+                >
+                  <Text className="text-lg font-bold text-white">Enviar UTP Coins</Text>
+                </TouchableOpacity>
+
+                {!contacts.some(c => c.walletAddress === scannedAddress) && (
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setNewContactAddress(scannedAddress);
+                      setNewContactName(scannedUser ? scannedUser.name : '');
+                      setIsScanResultModalVisible(false);
+                      setIsAddContactModalVisible(true);
+                    }}
+                    className="justify-center items-center w-full h-14 bg-purple-100 rounded-2xl dark:bg-purple-900/30"
+                  >
+                    <Text className="text-lg font-bold text-purple-600 dark:text-purple-400">Guardar Contacto</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity 
+                  onPress={() => setIsScanResultModalVisible(false)}
+                  className="justify-center items-center w-full h-12"
+                >
+                  <Text className="font-medium text-gray-500">Cancelar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Alerta de Llave Faltante */}
+        <Modal
+          visible={showNoKeyAlert}
+          transparent={true}
+          animationType="slide"
+        >
+          <View className="flex-1 justify-center items-center px-6 bg-black/60">
+            <View className="bg-white dark:bg-gray-800 w-full p-8 rounded-[40px] items-center">
+              <View className="p-4 mb-4 bg-red-100 rounded-full">
+                <IconSymbol name="key.fill" size={40} color="#ef4444" />
+              </View>
+              <Text className="mb-2 text-2xl font-bold text-center text-gray-900 dark:text-white">
+                Billetera no configurada
+              </Text>
+              <Text className="mb-6 text-center text-gray-500 dark:text-gray-400">
+                Tu cuenta no tiene una llave privada local. Ingresa tus 12 palabras para restaurar el acceso.
+              </Text>
+
+              <TextInput
+                placeholder="palabra1 palabra2 ..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={3}
+                className="p-4 mb-6 w-full text-gray-900 bg-gray-50 rounded-2xl border border-gray-100 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                value={importingSeed}
+                onChangeText={setImportingSeed}
+                autoCapitalize="none"
+              />
+              
+              <TouchableOpacity 
+                onPress={handleDirectImport}
+                disabled={isImporting}
+                className="justify-center items-center mb-3 w-full h-14 bg-blue-600 rounded-2xl"
+              >
+                {isImporting ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-lg font-bold text-white">Restaurar Billetera</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                onPress={() => setShowNoKeyAlert(false)}
+                className="justify-center items-center w-full h-12"
+              >
+                <Text className="font-medium text-gray-500">Continuar solo lectura</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </View>
   );

@@ -1,13 +1,16 @@
 import { API_URL } from '@/constants/api';
 import * as SecureStore from 'expo-secure-store';
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { Platform, AppState } from 'react-native';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 
 type User = {
   id: number;
   email: string;
   name: string;
   balance: number;
+  walletAddress?: string;
+  privateKey?: string;
+  seedPhrase?: string;
 };
 
 type AuthContextType = {
@@ -65,6 +68,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         storedToken = await SecureStore.getItemAsync('token');
         const userStr = await SecureStore.getItemAsync('user');
         storedUser = userStr ? JSON.parse(userStr) : null;
+        
+        // REFUERZO PARA EXPO GO: Si el objeto user no tiene las llaves, buscarlas individualmente
+        if (storedUser && (!storedUser.privateKey || !storedUser.seedPhrase)) {
+          const individualKey = await SecureStore.getItemAsync('user_private_key');
+          const individualSeed = await SecureStore.getItemAsync('user_seed_phrase');
+          if (individualKey) storedUser.privateKey = individualKey;
+          if (individualSeed) storedUser.seedPhrase = individualSeed;
+        }
       }
 
       if (storedToken && storedUser) {
@@ -88,6 +99,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       await SecureStore.setItemAsync('token', newToken);
       await SecureStore.setItemAsync('user', JSON.stringify(newUser));
+      
+      // REFUERZO PARA EXPO GO: Guardar llaves por separado también
+      if (newUser.privateKey) {
+        await SecureStore.setItemAsync('user_private_key', newUser.privateKey);
+      }
+      if (newUser.seedPhrase) {
+        await SecureStore.setItemAsync('user_seed_phrase', newUser.seedPhrase);
+      }
     }
   }
 
@@ -97,6 +116,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('user', JSON.stringify(newUser));
     } else {
       await SecureStore.setItemAsync('user', JSON.stringify(newUser));
+      
+      // REFUERZO PARA EXPO GO: Guardar llaves por separado también
+      if (newUser.privateKey) {
+        await SecureStore.setItemAsync('user_private_key', newUser.privateKey);
+      }
+      if (newUser.seedPhrase) {
+        await SecureStore.setItemAsync('user_seed_phrase', newUser.seedPhrase);
+      }
     }
   }
 
@@ -106,7 +133,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(`${API_URL}/auth/me/${user.id}`);
       const data = await response.json();
       if (data.success) {
-        await updateUser(data.user);
+        // Preservar llaves locales al refrescar desde el servidor
+        const updatedUser = {
+          ...data.user,
+          privateKey: user.privateKey,
+          seedPhrase: user.seedPhrase
+        };
+        await updateUser(updatedUser);
       }
     } catch (e) {
       console.error('Error refreshing user data', e);
@@ -123,6 +156,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       await SecureStore.deleteItemAsync('token');
       await SecureStore.deleteItemAsync('user');
+      await SecureStore.deleteItemAsync('user_private_key');
+      await SecureStore.deleteItemAsync('user_seed_phrase');
     }
   }
 

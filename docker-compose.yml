@@ -104,7 +104,7 @@ services:
     ports:
       - "4000:80"
     environment:
-      - APP_NODE_URL=http://localhost:8545
+      - APP_NODE_URL=http://node1:8545
     networks:
       - utpay_net
     depends_on:

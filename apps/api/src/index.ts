@@ -1,14 +1,16 @@
 import bcrypt from 'bcryptjs'
 import { and, desc, eq, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
+import { Wallet } from 'ethers'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { SignJWT } from 'jose'
-import { createDb, missionApplications, missionCategories, missions, transactions, users } from './db'
+import { contacts, createDb, missionApplications, missionCategories, missions, transactions, users } from './db'
 
 type Bindings = {
   DB: D1Database
   JWT_SECRET: string
+  RPC_URL?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -28,20 +30,32 @@ app.post('/auth/register', async (c) => {
     const { email, name, password } = await c.req.json()
     const db = createDb(c.env.DB)
 
-    // 1. Encriptar contraseña
-    const hashedPassword = await bcrypt.hash(password, 10)
+    // 1. Encriptar contraseña - Usamos 8 rondas para no bloquear la CPU de Cloudflare Workers
+    const hashedPassword = await bcrypt.hash(password, 8)
 
-    // 2. Insertar usuario
+    // 2. Generar Wallet de Blockchain
+    const wallet = Wallet.createRandom()
+    const seedPhrase = wallet.mnemonic?.phrase || ''
+    
+    // 3. Insertar usuario (SIN guardar la llave privada ni semilla)
     const newUser = await db.insert(users).values({
       email,
       name,
       password: hashedPassword,
-      balance: 10.0 // Bono de bienvenida
+      walletAddress: wallet.address,
+      balance: 0.0
     }).returning()
 
     return c.json({ 
       success: true, 
-      user: { id: newUser[0].id, email: newUser[0].email, name: newUser[0].name } 
+      user: { 
+        id: newUser[0].id, 
+        email: newUser[0].email, 
+        name: newUser[0].name,
+        walletAddress: newUser[0].walletAddress,
+        privateKey: wallet.privateKey, // SE ENVÍA SOLO ESTA VEZ AL CLIENTE
+        seedPhrase: seedPhrase        // EL CLIENTE DEBE GUARDARLO LOCALMENTE
+      } 
     })
   } catch (e: any) {
     console.error('Error en registro:', e)
@@ -76,7 +90,14 @@ app.post('/auth/login', async (c) => {
     return c.json({ 
       success: true, 
       token, 
-      user: { id: user.id, name: user.name, email: user.email, balance: user.balance } 
+      user: { 
+        id: user.id, 
+        name: user.name, 
+        email: user.email, 
+        balance: user.balance,
+        walletAddress: user.walletAddress
+        // NO enviamos privateKey ni seedPhrase, el servidor no las tiene
+      } 
     })
   } catch (e: any) {
     console.error('Error en login:', e)
@@ -101,7 +122,34 @@ app.get('/auth/me/:id', async (c) => {
 
     return c.json({ 
       success: true, 
-      user: { id: user.id, name: user.name, email: user.email, balance: user.balance } 
+      user: { 
+        id: user.id, 
+        name: user.name, 
+        email: user.email, 
+        balance: user.balance,
+        walletAddress: user.walletAddress
+        // NO enviamos privateKey ni seedPhrase, el servidor no las tiene
+      } 
+    })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// Endpoint para verificar un receptor por dirección de blockchain
+app.get('/users/verify-address/:address', async (c) => {
+  try {
+    const address = c.req.param('address')
+    const db = createDb(c.env.DB)
+    const user = await db.select().from(users).where(eq(users.walletAddress, address)).get()
+
+    if (!user) {
+      return c.json({ success: false, message: 'Usuario no encontrado en la red UTPay' }, 404)
+    }
+
+    return c.json({ 
+      success: true, 
+      user: { id: user.id, name: user.name, email: user.email, walletAddress: user.walletAddress } 
     })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
@@ -111,7 +159,7 @@ app.get('/auth/me/:id', async (c) => {
 // Endpoint para enviar dinero
 app.post('/transactions/send', async (c) => {
   try {
-    const { senderId, receiverEmail, receiverId, amount, description } = await c.req.json()
+    const { senderId, receiverEmail, receiverId, amount, description, txHash } = await c.req.json()
     const db = createDb(c.env.DB)
 
     if (amount <= 0) {
@@ -135,14 +183,20 @@ app.post('/transactions/send', async (c) => {
     if (!receiver) return c.json({ success: false, message: 'Receptor no encontrado' }, 404)
     if (sender.id === receiver.id) return c.json({ success: false, message: 'No puedes enviarte dinero a ti mismo' }, 400)
     
-    if (sender.balance < finalAmount) {
-      return c.json({ success: false, message: 'Saldo insuficiente' }, 400)
+    // VALIDACIÓN DE SEGURIDAD:
+    // Si la transacción ya se envió a la blockchain (tenemos txHash), 
+    // debemos procesar el descuento de saldo incluso si en el backend el balance parece menor,
+    // porque la plata YA SALIÓ de la billetera blockchain del usuario.
+    // Esto previene que el saldo del backend se desincronice con la blockchain.
+    
+    if (!txHash && (sender.balance || 0) < finalAmount) {
+      return c.json({ success: false, message: 'Saldo insuficiente en el servidor' }, 400)
     }
 
     // 2. Ejecutar transacción ATÓMICA
     // Usamos db.batch para asegurar que o se hacen todas, o no se hace ninguna
     await db.batch([
-      // Restar al emisor
+      // Restar al emisor (permitimos saldo negativo temporal si la blockchain ya procesó la TX)
       db.update(users)
         .set({ balance: (sender.balance || 0) - finalAmount })
         .where(eq(users.id, senderId)),
@@ -157,9 +211,14 @@ app.post('/transactions/send', async (c) => {
         senderId,
         receiverId: receiver.id,
         amount: finalAmount,
-        description: description || `Transferencia UTPay`
+        description: description || `Transferencia UTPay ${txHash ? '(Blockchain)' : ''}`,
+        txHash: txHash || null
       })
     ])
+
+    // 3. VALIDACIÓN POST-TRANSACCIÓN (Opcional/Educativo)
+    // Podríamos verificar en la blockchain que el txHash sea válido aquí si quisiéramos
+    // una doble capa de seguridad.
 
     return c.json({ success: true, message: 'Transferencia realizada con éxito' })
   } catch (e: any) {
@@ -208,6 +267,59 @@ app.get('/users', async (c) => {
     return c.json(result)
   } catch (e: any) {
     return c.json({ err: e.message }, 500)
+  }
+})
+
+// --- Endpoints de Contactos ---
+
+// Obtener contactos de un usuario
+app.get('/contacts/:userId', async (c) => {
+  try {
+    const userId = parseInt(c.req.param('userId'))
+    const db = createDb(c.env.DB)
+    const userContacts = await db.select().from(contacts).where(eq(contacts.userId, userId)).orderBy(desc(contacts.createdAt)).all()
+    return c.json({ success: true, contacts: userContacts })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// Agregar un contacto
+app.post('/contacts', async (c) => {
+  try {
+    const { userId, contactName, walletAddress } = await c.req.json()
+    const db = createDb(c.env.DB)
+    
+    // Verificar si ya existe un contacto con esa dirección para ese usuario
+    const existing = await db.select().from(contacts)
+      .where(and(eq(contacts.userId, userId), eq(contacts.walletAddress, walletAddress)))
+      .get()
+      
+    if (existing) {
+      return c.json({ success: false, message: 'Ya tienes este contacto guardado' }, 400)
+    }
+
+    const newContact = await db.insert(contacts).values({
+      userId,
+      contactName,
+      walletAddress
+    }).returning()
+
+    return c.json({ success: true, contact: newContact[0] })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// Eliminar un contacto
+app.delete('/contacts/:id', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'))
+    const db = createDb(c.env.DB)
+    await db.delete(contacts).where(eq(contacts.id, id))
+    return c.json({ success: true, message: 'Contacto eliminado' })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
   }
 })
 

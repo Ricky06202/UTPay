@@ -6,6 +6,8 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   password: text("password").notNull(),
+  walletAddress: text("wallet_address"),
+  // privateKey y seedPhrase eliminados para billetera no-custodia (Real BTC experience)
   balance: real("balance").default(0.0),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
@@ -44,5 +46,13 @@ export const missionApplications = sqliteTable("mission_applications", {
   status: text("status").default('pending'), // pending, accepted, rejected, completed
   bidAmount: real("bid_amount").notNull(),
   comment: text("comment"),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+});
+
+export const contacts = sqliteTable("contacts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  contactName: text("contact_name").notNull(),
+  walletAddress: text("wallet_address").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });

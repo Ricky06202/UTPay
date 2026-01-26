@@ -1,8 +1,10 @@
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { API_URL } from '@/constants/api';
 import { useAuth } from '@/context/auth';
+import { ethers, Wallet } from 'ethers';
 import { Link, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const isWeb = Platform.OS === 'web';
@@ -13,6 +15,8 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [seedPhrase, setSeedPhrase] = useState('');
   const router = useRouter();
   const { signIn } = useAuth();
 
@@ -35,7 +39,31 @@ export default function LoginScreen() {
       const data = await response.json();
 
       if (data.success) {
-        await signIn(data.token, data.user);
+        // Verificar si tenemos una llave importada temporalmente
+        let finalUser = data.user;
+        try {
+          let tempKey, tempSeed;
+          if (Platform.OS === 'web') {
+            tempKey = localStorage.getItem('temp_private_key');
+            tempSeed = localStorage.getItem('temp_seed_phrase');
+            localStorage.removeItem('temp_private_key');
+            localStorage.removeItem('temp_seed_phrase');
+          } else {
+            const SecureStore = require('expo-secure-store');
+            tempKey = await SecureStore.getItemAsync('temp_private_key');
+            tempSeed = await SecureStore.getItemAsync('temp_seed_phrase');
+            await SecureStore.deleteItemAsync('temp_private_key');
+            await SecureStore.deleteItemAsync('temp_seed_phrase');
+          }
+
+          if (tempKey && tempSeed) {
+            finalUser = { ...finalUser, privateKey: tempKey, seedPhrase: tempSeed };
+          }
+        } catch (storageErr) {
+          console.error('Error recuperando llave temporal:', storageErr);
+        }
+
+        await signIn(data.token, finalUser);
         router.replace('/(tabs)');
       } else {
         setError(data.message || 'Error al iniciar sesión');
@@ -44,6 +72,52 @@ export default function LoginScreen() {
       setError('No se pudo conectar con el servidor');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleImportWallet = async () => {
+    if (!seedPhrase || seedPhrase.trim().split(/\s+/).length !== 12) {
+      alert('Por favor ingresa una frase semilla válida de 12 palabras');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      // Limpiar la frase
+      const cleanSeed = seedPhrase.trim().toLowerCase().replace(/\s+/g, ' ');
+      const words = cleanSeed.split(' ');
+      
+      if (words.length !== 12) {
+        alert(`La frase debe tener exactamente 12 palabras. (Ingresaste ${words.length})`);
+        return;
+      }
+
+      // Intentar el método estándar (BIP-39), si falla generar llave determinística
+      let wallet;
+      try {
+        wallet = Wallet.fromMnemonic(cleanSeed);
+      } catch (e) {
+        // Generar llave a partir del hash del texto (acepta cualquier frase de 12 palabras)
+        const hash = ethers.utils.id(cleanSeed);
+        wallet = new Wallet(hash);
+      }
+      
+      if (Platform.OS === 'web') {
+        localStorage.setItem('temp_private_key', wallet.privateKey);
+        localStorage.setItem('temp_seed_phrase', cleanSeed);
+      } else {
+        const SecureStore = require('expo-secure-store');
+        await SecureStore.setItemAsync('temp_private_key', wallet.privateKey);
+        await SecureStore.setItemAsync('temp_seed_phrase', cleanSeed);
+      }
+      
+      alert('Billetera restaurada correctamente. Ahora inicia sesión para entrar a tu cuenta.');
+      setShowImportModal(false);
+      setSeedPhrase('');
+    } catch (err) {
+      alert('Error al procesar la frase. Intenta de nuevo.');
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -123,10 +197,62 @@ export default function LoginScreen() {
                 </TouchableOpacity>
               </Link>
             </View>
+
+            <TouchableOpacity 
+              onPress={() => setShowImportModal(true)}
+              className="mt-6 items-center"
+            >
+              <Text className="text-gray-500 dark:text-gray-400 underline">Recuperar billetera con frase semilla</Text>
+            </TouchableOpacity>
           </View>
           
         </View>
       </ScrollView>
+
+      {/* Modal de Importación */}
+      <Modal
+        visible={showImportModal}
+        animationType="slide"
+        transparent={true}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white dark:bg-gray-900 rounded-t-[40px] p-8 h-[70%]">
+            <View className="flex-row justify-between items-center mb-6">
+              <Text className="text-2xl font-bold text-gray-900 dark:text-white">Recuperar Cuenta</Text>
+              <TouchableOpacity onPress={() => setShowImportModal(false)}>
+                <IconSymbol name="xmark.circle.fill" size={30} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+
+            <Text className="text-gray-600 dark:text-gray-400 mb-6">
+              Ingresa las 12 palabras de tu frase semilla para recuperar el acceso a tus fondos.
+            </Text>
+
+            <TextInput
+              placeholder="palabra1 palabra2 ..."
+              placeholderTextColor="#9ca3af"
+              multiline
+              numberOfLines={4}
+              className="p-6 text-lg text-gray-900 bg-gray-50 rounded-2xl border border-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-700 h-32"
+              value={seedPhrase}
+              onChangeText={setSeedPhrase}
+              autoCapitalize="none"
+            />
+
+            <TouchableOpacity 
+              onPress={handleImportWallet}
+              disabled={loading}
+              className="justify-center items-center mt-8 h-16 bg-green-600 rounded-2xl shadow-lg shadow-green-500/30"
+            >
+              {loading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text className="text-xl font-bold text-white">Importar Billetera</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
