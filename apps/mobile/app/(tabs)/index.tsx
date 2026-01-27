@@ -3,7 +3,7 @@ import { FeedbackModal } from '@/components/ui/FeedbackModal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { UTPSymbol } from '@/components/ui/UTPSymbol';
 import { API_URL } from '@/constants/api';
-import { getUTPBalance, getWallet } from '@/constants/blockchain';
+import { getWallet } from '@/constants/blockchain';
 import { useAuth } from '@/context/auth';
 import { ethers, Wallet } from 'ethers';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -71,16 +71,9 @@ export default function HomeScreen() {
   const [isImporting, setIsImporting] = useState(false);
 
   const fetchBlockchainBalance = async () => {
-    if (!user?.email) {
-      console.log('No email available for balance fetch');
-      return;
-    }
-    try {
-      const balance = await getUTPBalance(user.email);
-      setBlockchainBalance(balance);
-    } catch (error) {
-      console.error('Error fetching balance from blockchain:', error);
-    }
+    // Ahora usamos el refreshUser del context para jalar el saldo de la API (DB local)
+    // Esto es más rápido y cumple con el requerimiento de carga instantánea
+    await refreshUser();
   };
 
   useEffect(() => {
@@ -394,8 +387,43 @@ export default function HomeScreen() {
       }
       
       if (user) {
+        // Sincronizar con la base de datos
+        try {
+          console.log(`Sincronizando wallet ${wallet.address} para ${user.email}...`);
+          
+          // Timeout de 10 segundos para la sincronización
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+          const syncResponse = await fetch(`${API_URL}/auth/sync-wallet`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: user.email,
+              walletAddress: wallet.address
+            }),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          const syncData = await syncResponse.json();
+          if (!syncData.success) {
+            console.error('Error sincronizando wallet con DB:', syncData.message);
+          } else {
+            console.log('Wallet sincronizada con éxito en DB');
+          }
+        } catch (syncErr: any) {
+          if (syncErr.name === 'AbortError') {
+            console.error('La sincronización tardó demasiado y fue cancelada.');
+          } else {
+            console.error('Error de red al sincronizar wallet:', syncErr);
+          }
+        }
+
         const updatedUser = {
           ...user,
+          walletAddress: wallet.address,
           privateKey: wallet.privateKey,
           seedPhrase: cleanSeed
         };
@@ -412,7 +440,7 @@ export default function HomeScreen() {
           visible: true,
           type: 'success',
           title: '¡Billetera Vinculada!',
-          message: 'Tu billetera ha sido restaurada. El indicador debería cambiar a verde ahora.'
+          message: 'Tu billetera ha sido restaurada y sincronizada con tu cuenta.'
         });
       }
     } catch (err: any) {
@@ -444,8 +472,8 @@ export default function HomeScreen() {
     try {
       setIsSending(true);
 
-      // 0. Validar saldo antes de proceder (Balance On-Chain vs Monto)
-      const currentBalance = parseFloat(blockchainBalance || '0');
+        // 0. Validar saldo antes de proceder (Balance On-Chain vs Monto)
+      const currentBalance = parseFloat(user?.balance || '0');
       const sendAmount = parseFloat(amount);
       
       if (currentBalance < sendAmount) {
@@ -453,7 +481,7 @@ export default function HomeScreen() {
           visible: true,
           type: 'error',
           title: 'Saldo Insuficiente',
-          message: `No tienes suficientes UTP en el contrato. Saldo actual: ${currentBalance} UTP`
+          message: `No tienes suficientes UTP en el contrato. Saldo actual: ${currentBalance.toFixed(2)} UTP`
         });
         setIsSending(false);
         return;
@@ -467,11 +495,15 @@ export default function HomeScreen() {
         
         const memo = comment || "";
         
+        // Convertir monto a unidades del contrato (2 decimales)
+        const amountInUnits = BigInt(Math.round(Number(amount) * 100));
+        
         // Llamar a transferByEmail en lugar de transferencia nativa
         const tx = await contract.transferByEmail(
           recipientData.email,
-          ethers.utils.parseEther(amount),
-          memo
+          amountInUnits,
+          memo,
+          { gasPrice: 0 }
         );
         
         txHash = tx.hash;
@@ -560,13 +592,22 @@ export default function HomeScreen() {
       >
         <View className={`px-4 sm:px-6 w-full ${isDesktop ? 'max-w-5xl' : ''}`}>
           
-          {/* Header */}
-          <View className="flex-row justify-between items-center pt-2 pb-6">
-            <View>
-              <Text className="text-lg font-medium text-gray-500 dark:text-gray-400">Panel de Control</Text>
-              <Text className="text-3xl font-bold text-gray-900 dark:text-white">Hola, {user?.name || 'Estudiante'}</Text>
-            </View>
-            <View className="flex-row items-center">
+            {/* Header */}
+            <View className="flex-row justify-between items-center pt-2 pb-6">
+              <View>
+                <Text className="text-lg font-medium text-gray-500 dark:text-gray-400">Panel de Control {user?.role === 'admin' ? '(Admin)' : ''}</Text>
+                <Text className="text-3xl font-bold text-gray-900 dark:text-white">Hola, {user?.name || 'Estudiante'}</Text>
+              </View>
+              <View className="flex-row items-center">
+                {user?.role === 'admin' && (
+                  <TouchableOpacity 
+                    onPress={() => router.push('/admin')}
+                    className="flex-row items-center px-4 py-2 mr-4 bg-purple-100 rounded-full border border-purple-200 shadow-sm dark:bg-purple-900/30 dark:border-purple-800"
+                  >
+                    <IconSymbol size={18} name="shield.fill" color="#9333ea" />
+                    <Text className="ml-2 text-xs font-bold text-purple-700 dark:text-purple-300">PANEL ADMIN</Text>
+                  </TouchableOpacity>
+                )}
               <TouchableOpacity 
                 onPress={checkBackend}
                 className="flex-row items-center px-4 py-2 mr-4 bg-white rounded-full border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700"
@@ -598,12 +639,12 @@ export default function HomeScreen() {
                   <View className="flex-row items-center mb-2">
                      <UTPSymbol size={40} color="white" containerStyle={{ marginRight: 12 }} />
                      <Text className="text-5xl font-bold text-white">
-                       {blockchainBalance ? parseFloat(blockchainBalance).toFixed(2) : '0.00'}
+                       {user?.balance ? parseFloat(user.balance).toFixed(2) : '0.00'}
                      </Text>
                    </View>
-                  {blockchainBalance && (
+                  {user?.balance !== undefined && (
                     <Text className="mb-6 text-xs font-medium text-purple-200/60">
-                      Sincronizado con Blockchain ⛓️
+                      Saldo sincronizado ⚡
                     </Text>
                   )}
                   {!blockchainBalance && <View className="mb-6" />}
@@ -790,7 +831,7 @@ export default function HomeScreen() {
                         <View className="flex-shrink-0 ml-2 flex-row items-center">
                            <UTPSymbol size={14} color={!isExpense ? '#22c55e' : '#ef4444'} containerStyle={{ marginRight: 4 }} />
                            <Text className={`font-bold ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
-                             {!isExpense ? '+' : '-'}{item.amount.toFixed(2)}
+                             {!isExpense ? '+' : '-'}{Number(item.amount || 0).toFixed(2)}
                            </Text>
                          </View>
                       </TouchableOpacity>
@@ -969,10 +1010,10 @@ export default function HomeScreen() {
                 <Text className="text-3xl font-black text-gray-900 dark:text-white flex-row items-center">
                    {selectedTransaction?.senderId === user?.id ? '-' : '+'}
                    <UTPSymbol size={24} color={selectedTransaction?.senderId === user?.id ? '#ef4444' : '#22c55e'} containerStyle={{ marginHorizontal: 4 }} />
-                   {selectedTransaction?.amount?.toFixed(2)}
+                   {Number(selectedTransaction?.amount || 0).toFixed(2)}
                  </Text>
                 <Text className="text-gray-500 dark:text-gray-400 mt-1">
-                  {selectedTransaction ? new Date(selectedTransaction.createdAt).toLocaleString() : ''}
+                  {selectedTransaction ? new Date(Number(selectedTransaction.createdAt) * 1000).toLocaleString() : ''}
                 </Text>
               </View>
 

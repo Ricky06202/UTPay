@@ -7,6 +7,8 @@ export const users = sqliteTable("users", {
   name: text("name").notNull(),
   password: text("password").notNull(),
   walletAddress: text("wallet_address"), // Guardamos el reflejo de la billetera actual
+  balance: real("balance").default(0), // Balance sincronizado con la blockchain
+  role: text("role").default('student'), // student, admin, cafeteria
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 

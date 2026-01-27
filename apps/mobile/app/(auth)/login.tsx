@@ -30,11 +30,40 @@ export default function LoginScreen() {
     setError('');
 
     try {
-      const response = await fetch(`${API_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
+      // Intentar recuperar llave temporal si existe para enviarla al login
+      let tempWalletAddress = undefined;
+      try {
+        let tempKey;
+        if (Platform.OS === 'web') {
+          tempKey = localStorage.getItem('temp_private_key');
+        } else {
+          const SecureStore = require('expo-secure-store');
+          tempKey = await SecureStore.getItemAsync('temp_private_key');
+        }
+        
+        if (tempKey) {
+           const wallet = new Wallet(tempKey);
+           tempWalletAddress = wallet.address;
+         }
+       } catch (e) {
+         console.log('No temp key found or error reading it');
+       }
+ 
+       const controller = new AbortController();
+       const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+       const response = await fetch(`${API_URL}/auth/login`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ 
+           email, 
+           password,
+           walletAddress: tempWalletAddress // Enviamos la dirección si la importó antes
+         }),
+         signal: controller.signal
+       });
+       
+       clearTimeout(timeoutId);
 
       const data = await response.json();
 
@@ -64,7 +93,11 @@ export default function LoginScreen() {
         }
 
         await signIn(data.token, finalUser);
-        router.replace('/(tabs)');
+        if (finalUser.role === 'admin') {
+          router.replace('/admin');
+        } else {
+          router.replace('/(tabs)');
+        }
       } else {
         setError(data.message || 'Error al iniciar sesión');
       }

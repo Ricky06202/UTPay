@@ -2,7 +2,7 @@
   "name": "api",
   "version": "1.0.0",
   "scripts": {
-    "dev": "wrangler dev --port 8787 --ip 0.0.0.0 --remote",
+    "dev": "wrangler dev --port 8787 --ip 0.0.0.0 --remote true",
     "start": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:generate": "drizzle-kit generate",

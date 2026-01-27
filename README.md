@@ -59,6 +59,14 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 
 ## 📓 Bitácora de Desarrollo
 
+### Día 3 (26 de Enero, 2026)
+*   **Adopción de Sirato (Chainlens Free)**: Se integró Sirato como el explorador de bloques principal para la red Hyperledger Besu, sustituyendo/complementando a Blockscout. Esto proporciona una interfaz más moderna y transparente para la auditoría de transacciones, bloques y contratos inteligentes, esencial para la transparencia de la tesis.
+*   **Orquestación con Docker Compose**: Configuración completa de los servicios de Sirato (API, Web Frontend, Ingestion Engine y MongoDB) dentro de la red `utpay_net`. Se optimizó el consumo de recursos y la comunicación entre contenedores mediante una arquitectura de microservicios robusta.
+*   **Resolución de Conflictos de Red**: Implementación de un proxy inverso con **Nginx** para gestionar el tráfico hacia Sirato en el puerto **4000**, mientras que Blockscout fue remapeado al puerto **4001**. Esto asegura que ambos exploradores coexistan sin conflictos de puertos locales.
+*   **Optimización de Conectividad Redis**: Corrección de errores críticos de conexión en `sirato-api` mediante la inyección de variables de entorno multiversión (`SPRING_REDIS_HOST`, `REDIS_HOST`), asegurando una persistencia de datos y caché eficiente.
+*   **Sincronización de Datos en Tiempo Real**: Verificación de la ingesta de datos desde los nodos de Besu (node1), logrando una sincronización completa del historial de la red y permitiendo la visualización inmediata de la actividad del UTP Coin.
+*   **Health Checks y Diagnóstico**: Implementación de endpoints de salud y monitoreo para todos los servicios de infraestructura, garantizando una disponibilidad del 100% durante las pruebas de estrés de la red.
+
 ### Día 2 (25 de Enero, 2026)
 *   **Transición a Billetera No Custodia**: Se eliminó el almacenamiento de llaves privadas y frases semilla en el servidor. Ahora, las llaves se generan localmente y se almacenan de forma segura en el dispositivo del usuario mediante `Expo SecureStore`, garantizando que solo el usuario tenga control total sobre sus fondos ("Real BTC Experience").
 *   **Seguridad Híbrida y Recuperación**: Implementación de un sistema de recuperación basado en frases semilla (12 palabras). Se añadió un flujo de importación manual y alertas visuales dinámicas para indicar si la billetera está correctamente vinculada y lista para firmar transacciones.

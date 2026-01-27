@@ -11,7 +11,7 @@ contract UTPay {
     address public admin;
     string public name = "UTPay University Token";
     string public symbol = "UTP";
-    uint8 public decimals = 18;
+    uint8 public decimals = 2;
 
     struct Student {
         string email;
@@ -29,6 +29,7 @@ contract UTPay {
     event WalletUpdated(string email, address oldWallet, address newWallet);
     event StudentRegistered(string email, address wallet);
     event Mint(string email, uint256 amount);
+    event Burn(string email, uint256 amount);
 
     constructor() {
         admin = msg.sender;
@@ -37,6 +38,14 @@ contract UTPay {
     modifier onlyAdmin() {
         require(msg.sender == admin, "Solo la Universidad puede ejecutar esto");
         _;
+    }
+
+    /**
+     * @dev Cambia el administrador del contrato.
+     */
+    function transferOwnership(address _newAdmin) public onlyAdmin {
+        require(_newAdmin != address(0), "Nuevo admin no puede ser direccion cero");
+        admin = _newAdmin;
     }
 
     /**
@@ -79,6 +88,18 @@ contract UTPay {
         students[_email].balance += _amount;
         
         emit Mint(_email, _amount);
+    }
+
+    /**
+     * @dev Elimina saldo de un estudiante (ej: corrección de errores, multas, pagos presenciales).
+     */
+    function burn(string memory _email, uint256 _amount) public onlyAdmin {
+        require(students[_email].isRegistered, "Estudiante no existe");
+        require(students[_email].balance >= _amount, "Saldo insuficiente para eliminar");
+        
+        students[_email].balance -= _amount;
+        
+        emit Burn(_email, _amount);
     }
 
     /**

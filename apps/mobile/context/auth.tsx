@@ -12,6 +12,7 @@ type User = {
   privateKey?: string;
   seedPhrase?: string;
   balance?: string; // Nuevo: Balance obtenido del contrato vía API
+  role?: 'student' | 'admin' | 'cafeteria';
 };
 
 type AuthContextType = {

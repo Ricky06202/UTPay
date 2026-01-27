@@ -24,6 +24,67 @@ app.get('/', (c) => {
   })
 })
 
+app.get('/admin/stats', async (c) => {
+  try {
+    const db = createDb(c.env.DB)
+    console.log('--- Admin Stats Request ---')
+    
+    // 1. Usuarios Totales
+    const usersList = await db.select().from(users).all()
+    const totalUsers = usersList.length
+    
+    // 2. Transacciones
+    const txList = await db.select().from(transactions).all()
+    
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const todayTimestamp = Math.floor(startOfDay.getTime() / 1000);
+    
+    const todayTransactions = txList.filter(tx => {
+      // Intentar manejar diferentes formatos de fecha (timestamp o ISO string)
+      let txTime = 0;
+      if (tx.createdAt) {
+        txTime = typeof tx.createdAt === 'number' 
+          ? tx.createdAt 
+          : Math.floor(new Date(tx.createdAt).getTime() / 1000);
+      }
+      return txTime >= todayTimestamp;
+    }).length
+    
+    // 3. Volumen Total (Circulación actual: Mints - Burns)
+    const totalVolume = txList.reduce((acc, tx) => {
+      // Solo contar transacciones exitosas
+      if (tx.status !== 'success' && tx.status !== 'confirmed') return acc;
+      
+      const sender = (tx.senderEmail || '').trim().toUpperCase();
+      const receiver = (tx.receiverEmail || '').trim().toUpperCase();
+      
+      if (sender === 'SISTEMA') return acc + Number(tx.amount || 0);
+      if (receiver === 'SISTEMA') return acc - Number(tx.amount || 0);
+      return acc;
+    }, 0)
+    
+    // 4. Misiones Activas
+    const activeMissionsList = await db.select().from(missions).where(eq(missions.status, 'open')).all()
+    const activeMissions = activeMissionsList.length
+
+    console.log('Stats:', { totalUsers, todayTransactions, totalVolume, activeMissions })
+
+    return c.json({
+      success: true,
+      stats: {
+        totalUsers,
+        todayTransactions,
+        totalVolume,
+        activeMissions
+      }
+    })
+  } catch (e: any) {
+    console.error('Error en admin stats:', e)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
 // Endpoint de Registro
 app.post('/auth/register', async (c) => {
   try {
@@ -47,7 +108,7 @@ app.post('/auth/register', async (c) => {
 
     // 4. Registrar en el Smart Contract (Abstracción de Identidad)
     try {
-      const contract = getContract()
+      const contract = getContract(c.env.RPC_URL)
       const tx = await contract.registerStudent(email, wallet.address)
       await tx.wait()
       console.log(`Estudiante ${email} registrado en blockchain con wallet ${wallet.address}`)
@@ -79,7 +140,7 @@ app.post('/auth/register', async (c) => {
 // Endpoint de Login
 app.post('/auth/login', async (c) => {
   try {
-    const { email, password } = await c.req.json()
+    const { email, password, walletAddress } = await c.req.json()
     const db = createDb(c.env.DB)
 
     // 1. Buscar usuario
@@ -89,7 +150,18 @@ app.post('/auth/login', async (c) => {
       return c.json({ success: false, message: 'Credenciales inválidas' }, 401)
     }
 
-    // 2. Generar JWT
+    // 2. Sincronizar Wallet Address si se proporciona y el usuario no tiene una
+    let currentWalletAddress = user.walletAddress;
+    if (walletAddress && (!user.walletAddress || user.walletAddress !== walletAddress)) {
+      console.log(`Sincronizando wallet para ${email}: ${walletAddress}`);
+      await db.update(users)
+        .set({ walletAddress: walletAddress })
+        .where(eq(users.id, user.id))
+        .run()
+      currentWalletAddress = walletAddress;
+    }
+
+    // 3. Generar JWT
     const secret = new TextEncoder().encode(c.env.JWT_SECRET || 'utpay-secret-key-123')
     const token = await new SignJWT({ id: user.id, email: user.email })
       .setProtectedHeader({ alg: 'HS256' })
@@ -103,7 +175,8 @@ app.post('/auth/login', async (c) => {
         id: user.id, 
         name: user.name, 
         email: user.email,
-        walletAddress: user.walletAddress
+        walletAddress: currentWalletAddress,
+        role: user.role
       } 
     })
   } catch (e: any) {
@@ -113,6 +186,62 @@ app.post('/auth/login', async (c) => {
       message: 'Error en el servidor',
       error: e.message || e.toString()
     }, 500)
+  }
+})
+
+// Endpoint para sincronizar wallet manualmente
+app.post('/auth/sync-wallet', async (c) => {
+  try {
+    const { email, walletAddress } = await c.req.json()
+    const db = createDb(c.env.DB)
+
+    if (!email || !walletAddress) {
+      return c.json({ success: false, message: 'Faltan datos requeridos' }, 400)
+    }
+
+    // 1. Buscar usuario para confirmar que existe
+    const user = await db.select().from(users).where(eq(users.email, email)).get()
+    if (!user) {
+      return c.json({ success: false, message: 'Usuario no encontrado' }, 404)
+    }
+
+    // 2. Actualizar en DB Local
+    await db.update(users)
+      .set({ walletAddress: walletAddress })
+      .where(eq(users.email, email))
+      .run()
+
+    console.log(`[Sync] Wallet de ${email} sincronizada a ${walletAddress}`)
+    
+    // 3. Registrar en Blockchain en SEGUNDO PLANO (sin bloquear la respuesta)
+    const rpcUrl = c.env.RPC_URL
+    if (rpcUrl) {
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const contract = getContract(rpcUrl)
+          console.log(`[Sync-BG] Intentando registrar ${email} en blockchain...`)
+          
+          // Verificar si ya está registrado para no enviar transacción innecesaria
+          // (Opcional, pero ahorra gas/tiempo)
+          
+          const tx = await contract.registerStudent(email, walletAddress)
+          console.log(`[Sync-BG] Transacción de registro enviada: ${tx.hash}`)
+          await tx.wait()
+          console.log(`[Sync-BG] Estudiante ${email} registrado con éxito`)
+        } catch (blockchainError: any) {
+          console.log(`[Sync-BG] Registro en blockchain saltado o fallido: ${blockchainError.message}`)
+        }
+      })())
+    }
+
+    return c.json({ 
+      success: true, 
+      message: 'Billetera vinculada y sincronizada correctamente',
+      walletAddress 
+    })
+  } catch (e: any) {
+    console.error('Error en sync-wallet:', e)
+    return c.json({ success: false, message: 'Error al sincronizar wallet', error: e.message }, 500)
   }
 })
 
@@ -127,16 +256,6 @@ app.get('/auth/me/:id', async (c) => {
       return c.json({ success: false, message: 'Usuario no encontrado' }, 404)
     }
 
-    // Obtener balance real del contrato
-    let balance = '0.0'
-    try {
-      const contract = getReadOnlyContract()
-      const rawBalance = await contract.getBalance(user.email)
-      balance = (Number(rawBalance) / 1e18).toString()
-    } catch (e) {
-      console.error('Error al obtener balance del contrato:', e)
-    }
-
     return c.json({ 
       success: true, 
       user: { 
@@ -144,7 +263,8 @@ app.get('/auth/me/:id', async (c) => {
         name: user.name, 
         email: user.email,
         walletAddress: user.walletAddress,
-        balance: balance
+        balance: user.balance || 0,
+        role: user.role
       } 
     })
   } catch (e: any) {
@@ -178,7 +298,7 @@ app.get('/users/verify-email/:email', async (c) => {
     if (!user) {
       // Si no está en la DB local, podríamos verificar en el contrato
       try {
-        const contract = getReadOnlyContract()
+        const contract = getReadOnlyContract(c.env.RPC_URL)
         await contract.getBalance(email)
         // Si no revierte, el estudiante existe en el contrato
         return c.json({ success: true, user: { name: 'Estudiante UTP', email: email } })
@@ -278,32 +398,85 @@ app.post('/internal/confirm-transaction', async (c) => {
     const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get()
 
     if (existing) {
+      // Si ya existe, actualizamos el estado y también el monto por si acaso
       await db.update(transactions)
-        .set({ status: status })
+        .set({ 
+          status: status,
+          amount: Number(amount)
+        })
         .where(eq(transactions.txHash, txHash))
         .run()
     } else {
       // Insertar nueva transacción detectada por el indexador
-      // Buscamos los IDs de los usuarios si existen en nuestra DB local
       const sender = await db.select().from(users).where(eq(users.email, fromEmail)).get()
       const receiver = await db.select().from(users).where(eq(users.email, toEmail)).get()
 
       await db.insert(transactions).values({
         txHash,
-        senderId: sender?.id || 0,
-        receiverId: receiver?.id || 0,
+        senderId: sender?.id || null,
+        receiverId: receiver?.id || null,
         senderEmail: fromEmail,
         receiverEmail: toEmail,
-        amount: amount.toString(),
+        amount: Number(amount),
         description: metadata || '',
         status: status
       }).run()
+    }
+
+    // SIEMPRE sincronizamos el balance real desde la Blockchain tras una confirmación
+    // para evitar inconsistencias por transacciones duplicadas o errores de cálculo local
+    const rpcUrl = c.env.RPC_URL;
+    if (rpcUrl) {
+      const contract = getReadOnlyContract(rpcUrl);
+      
+      if (fromEmail && fromEmail !== 'SISTEMA') {
+        try {
+          const balance = await contract.getBalance(fromEmail);
+          await db.update(users).set({ balance: Number(ethers.formatUnits(balance, 2)) }).where(eq(users.email, fromEmail)).run();
+          console.log(`Balance actualizado (Blockchain) para ${fromEmail}`);
+        } catch (e) {
+          console.error(`Error actualizando balance de ${fromEmail}:`, e);
+        }
+      }
+      
+      if (toEmail && toEmail !== 'SISTEMA') {
+        try {
+          const balance = await contract.getBalance(toEmail);
+          await db.update(users).set({ balance: Number(ethers.formatUnits(balance, 2)) }).where(eq(users.email, toEmail)).run();
+          console.log(`Balance actualizado (Blockchain) para ${toEmail}`);
+        } catch (e) {
+          console.error(`Error actualizando balance de ${toEmail}:`, e);
+        }
+      }
     }
 
     console.log(`Indexador: Transacción ${txHash} sincronizada en DB (${status})`)
     return c.json({ success: true })
   } catch (e: any) {
     console.error('Error en confirm-transaction:', e)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+app.post('/internal/sync-user-balance', async (c) => {
+  try {
+    const { email } = await c.req.json()
+    const rpcUrl = c.env.RPC_URL;
+    if (!rpcUrl) return c.json({ success: false, message: 'Falta RPC_URL' }, 500);
+
+    const contract = getReadOnlyContract(rpcUrl)
+    const balance = await contract.getBalance(email)
+    const balanceFormatted = Number(ethers.formatUnits(balance, 2))
+
+    const db = createDb(c.env.DB)
+    await db.update(users)
+      .set({ balance: balanceFormatted })
+      .where(eq(users.email, email))
+      .run()
+
+    console.log(`Balance de ${email} sincronizado manual: ${balanceFormatted} UTP`)
+    return c.json({ success: true, balance: balanceFormatted })
+  } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
 })
@@ -391,33 +564,218 @@ app.delete('/contacts/:id', async (c) => {
 // --- Endpoints Administrativos (Universidad) ---
 
 app.post('/admin/mint', async (c) => {
+  console.log('--- INICIO MINT REQUEST ---')
   try {
-    const { email, amount } = await c.req.json()
-    const contract = getContract()
+    const body = await c.req.json()
+    const { email, amount } = body
+    console.log(`Payload recibido: email=${email}, amount=${amount}`)
     
-    console.log(`Admin: Cargando ${amount} UTP a ${email}...`)
-    const tx = await contract.mint(email, ethers.parseEther(amount.toString()))
-    await tx.wait()
+    const rpcUrl = c.env.RPC_URL;
+    console.log(`RPC_URL configurada: ${rpcUrl}`);
     
-    return c.json({ success: true, txHash: tx.hash })
+    if (!rpcUrl) {
+      console.error('ERROR: RPC_URL no está definida en las variables de entorno');
+      return c.json({ success: false, message: 'Configuración incompleta: falta RPC_URL' }, 500);
+    }
+
+    let contract;
+    try {
+      console.log('Obteniendo instancia del contrato...');
+      contract = getContract(rpcUrl)
+      console.log('Instancia del contrato obtenida.');
+    } catch (err: any) {
+      console.error('Error al inicializar el contrato:', err);
+      return c.json({ success: false, message: 'Error al conectar con la lógica de Blockchain', error: err.message }, 500);
+    }
+    
+    // 1. Intentar el MINT directamente
+    try {
+      console.log(`Preparando transacción de mint para ${amount} UTP a ${email}...`);
+      const amountInUnits = BigInt(Math.round(Number(amount) * 100))
+      
+      // Intentar enviar la transacción directamente
+      const tx = await contract.mint(email, amountInUnits, { gasPrice: 0 })
+      console.log(`Transacción de mint enviada! Hash: ${tx.hash}`)
+      
+      // No esperamos al .wait() aquí para no bloquear el UI del admin
+      // Pero lo registramos en el contexto de ejecución para seguimiento
+      c.executionCtx.waitUntil((async () => {
+        try {
+          console.log(`[Mint-BG] Esperando confirmación para ${tx.hash}...`)
+          const receipt = await tx.wait()
+          console.log(`[Mint-BG] Confirmada en bloque ${receipt.blockNumber}`)
+        } catch (waitErr: any) {
+          console.error(`[Mint-BG] Error esperando confirmación de ${tx.hash}:`, waitErr.message)
+        }
+      })())
+      
+      return c.json({ 
+        success: true, 
+        txHash: tx.hash,
+        message: 'Transacción enviada a la red. Se confirmará en unos segundos.'
+      })
+    } catch (txErr: any) {
+      console.log('DEBUG: Error en primer intento de mint:', txErr.message);
+
+      // 2. Si falló porque el estudiante no existe, intentar registrarlo
+      const isNotRegistered = 
+        txErr.message.includes('Estudiante no existe') || 
+        (txErr.data && txErr.data.includes('Estudiante no existe')) ||
+        txErr.message.includes('revert');
+
+      if (isNotRegistered) {
+        console.log(`El estudiante ${email} no existe en blockchain. Intentando registro automático...`);
+        
+        const db = createDb(c.env.DB);
+        const user = await db.select().from(users).where(eq(users.email, email)).get();
+        
+        if (!user || !user.walletAddress) {
+          return c.json({ 
+            success: false, 
+            message: `El usuario ${email} no tiene una billetera asociada en la base de datos local.`,
+            debug: 'User or walletAddress missing in DB'
+          }, 400);
+        }
+
+        try {
+          console.log(`Registrando y recargando: ${email}...`);
+          // Aquí sí esperamos el registro porque el mint depende de él
+          const regTx = await contract.registerStudent(email, user.walletAddress, { gasPrice: 0 });
+          await regTx.wait();
+          console.log('Registro exitoso. Enviando mint...');
+          
+          const retryTx = await contract.mint(email, amountInUnits, { gasPrice: 0 });
+          
+          // El segundo mint lo enviamos y respondemos rápido también
+          c.executionCtx.waitUntil((async () => {
+            await retryTx.wait();
+            console.log(`[Mint-Retry-BG] Mint tras registro confirmado: ${retryTx.hash}`);
+          })());
+
+          return c.json({ 
+            success: true, 
+            txHash: retryTx.hash,
+            message: 'Estudiante registrado y recarga enviada con éxito.'
+          });
+        } catch (regErr: any) {
+          console.error('Error en proceso de registro + mint:', regErr);
+          return c.json({ 
+            success: false, 
+            message: `Error al registrar/recargar al estudiante.`,
+            error: regErr.message
+          }, 500);
+        }
+      }
+
+      // Si fue otro error diferente a "Estudiante no existe"
+      return c.json({ 
+        success: false, 
+        message: 'La transacción falló.',
+        error: txErr.message 
+      }, 500)
+    }
+
   } catch (e: any) {
-    console.error('Error en admin mint:', e)
-    return c.json({ success: false, error: e.message }, 500)
+    console.error('FATAL ERROR en admin/mint:', e)
+    return c.json({ 
+      success: false, 
+      message: 'Error interno crítico en el servidor.',
+      error: e.message,
+      stack: e.stack
+    }, 500)
+  } finally {
+    console.log('--- FIN MINT REQUEST ---')
+  }
+})
+
+app.post('/admin/burn', async (c) => {
+  console.log('--- INICIO BURN REQUEST ---')
+  try {
+    const body = await c.req.json()
+    const { email, amount } = body
+    const rpcUrl = c.env.RPC_URL;
+    
+    if (!rpcUrl) return c.json({ success: false, message: 'Falta RPC_URL' }, 500);
+
+    const contract = getContract(rpcUrl)
+    const amountInUnits = BigInt(Math.round(Number(amount) * 100))
+    
+    try {
+      console.log(`Eliminando ${amount} UTP de ${email}...`);
+      const tx = await contract.burn(email, amountInUnits, { gasPrice: 0 })
+      
+      c.executionCtx.waitUntil((async () => {
+        try {
+          await tx.wait()
+          console.log(`[Burn-BG] Confirmado: ${tx.hash}`)
+        } catch (waitErr: any) {
+          console.error(`[Burn-BG] Error en confirmación:`, waitErr.message)
+        }
+      })())
+      
+      return c.json({ 
+        success: true, 
+        txHash: tx.hash,
+        message: 'Solicitud de retiro enviada a la red.'
+      })
+    } catch (txErr: any) {
+      console.error('Error en burn:', txErr);
+      return c.json({ 
+        success: false, 
+        message: 'Error al procesar el retiro en Blockchain', 
+        error: txErr.message 
+      }, 500);
+    }
+  } catch (e: any) {
+    console.error('Error general en endpoint /admin/burn:', e);
+    return c.json({ success: false, error: e.message }, 500);
+  } finally {
+    console.log('--- FIN BURN REQUEST ---')
   }
 })
 
 app.post('/admin/update-wallet', async (c) => {
   try {
-    const { email, newWallet } = await c.req.json()
-    const contract = getContract()
+    const { email, newWallet, adminId } = await c.req.json()
+    const db = createDb(c.env.DB)
+
+    // 1. Verificar que el solicitante sea admin
+    if (adminId) {
+      const adminUser = await db.select().from(users).where(eq(users.id, adminId)).get()
+      if (!adminUser || adminUser.role !== 'admin') {
+        return c.json({ success: false, message: 'No tienes permisos de administrador' }, 403)
+      }
+    }
+
+    const contract = getContract(c.env.RPC_URL)
     
     console.log(`Admin: Actualizando wallet de ${email} a ${newWallet}...`)
-    const tx = await contract.updateWallet(email, newWallet)
+    
+    // 2. Actualizar en Blockchain
+    const tx = await contract.updateWallet(email, newWallet, { gasPrice: 0 })
+    console.log(`UpdateWallet TX enviada: ${tx.hash}`)
     await tx.wait()
+    console.log(`UpdateWallet TX confirmada: ${tx.hash}`)
+
+    // 3. Actualizar en DB Local inmediatamente para mejor UX
+    await db.update(users)
+      .set({ walletAddress: newWallet })
+      .where(eq(users.email, email))
+      .run()
     
     return c.json({ success: true, txHash: tx.hash })
   } catch (e: any) {
     console.error('Error en admin update-wallet:', e)
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+app.get('/admin/transactions', async (c) => {
+  try {
+    const db = createDb(c.env.DB)
+    const allTransactions = await db.select().from(transactions).orderBy(desc(transactions.createdAt)).all()
+    return c.json({ success: true, transactions: allTransactions })
+  } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }
 })
@@ -876,7 +1234,7 @@ async function runIndexer(env: Bindings) {
         const [fromEmail, toEmail, amount, metadata] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`✨ Sincronizando Transferencia: ${fromEmail} -> ${toEmail} (${ethers.formatEther(amount)} UTP)`);
+        console.log(`✨ Sincronizando Transferencia: ${fromEmail} -> ${toEmail} (${ethers.formatUnits(amount, 2)} UTP)`);
 
         // Evitar duplicados
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
@@ -890,10 +1248,22 @@ async function runIndexer(env: Bindings) {
             receiverId: receiver?.id || null,
             senderEmail: fromEmail,
             receiverEmail: toEmail,
-            amount: ethers.formatEther(amount),
+            amount: Number(ethers.formatUnits(amount, 2)),
             description: metadata || '',
             status: 'success'
           }).run();
+        }
+
+        // Sincronizar balances de los involucrados
+        const rpcUrl = env.RPC_URL;
+        const contractReader = getReadOnlyContract(rpcUrl);
+        if (fromEmail && fromEmail !== 'SISTEMA') {
+          const bal = await contractReader.getBalance(fromEmail);
+          await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, fromEmail)).run();
+        }
+        if (toEmail && toEmail !== 'SISTEMA') {
+          const bal = await contractReader.getBalance(toEmail);
+          await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, toEmail)).run();
         }
       }
     }
@@ -907,7 +1277,7 @@ async function runIndexer(env: Bindings) {
         const [email, amount] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`💰 Sincronizando Mint: ${email} (+${ethers.formatEther(amount)} UTP)`);
+        console.log(`💰 Sincronizando Mint: ${email} (+${ethers.formatUnits(amount, 2)} UTP)`);
 
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
         if (!existing) {
@@ -919,15 +1289,56 @@ async function runIndexer(env: Bindings) {
             receiverId: receiver?.id || null,
             senderEmail: 'SISTEMA',
             receiverEmail: email,
-            amount: ethers.formatEther(amount),
+            amount: Number(ethers.formatUnits(amount, 2)),
             description: 'Carga de saldo por Admin',
             status: 'success'
           }).run();
         }
+
+        // Sincronizar balance del receptor
+        const rpcUrl = env.RPC_URL;
+        const contractReader = getReadOnlyContract(rpcUrl);
+        const bal = await contractReader.getBalance(email);
+        await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, email)).run();
       }
     }
 
-    // 5. Actualizar el último bloque procesado
+    // 5. Consultar eventos de Burn (Retiro de saldo)
+    const burnFilter = contract.filters.Burn();
+    const burnEvents = await contract.queryFilter(burnFilter, fromBlock, toBlock);
+
+    for (const event of burnEvents) {
+      if ('args' in event && event.args) {
+        const [email, amount] = event.args;
+        const txHash = event.transactionHash;
+
+        console.log(`🔥 Sincronizando Burn: ${email} (-${ethers.formatUnits(amount, 2)} UTP)`);
+
+        const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
+        if (!existing) {
+          const sender = await db.select().from(users).where(eq(users.email, email)).get();
+
+          await db.insert(transactions).values({
+            txHash,
+            senderId: sender?.id || null,
+            receiverId: null,
+            senderEmail: email,
+            receiverEmail: 'SISTEMA',
+            amount: Number(ethers.formatUnits(amount, 2)),
+            description: 'Retiro de saldo por Admin',
+            status: 'success'
+          }).run();
+        }
+
+        // Sincronizar balance del emisor (el que sufrió el burn)
+        const rpcUrl = env.RPC_URL;
+        const contractReader = getReadOnlyContract(rpcUrl);
+        const bal = await contractReader.getBalance(email);
+        await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, email)).run();
+      }
+    }
+
+    // 6. Actualizar el último bloque procesado
     if (lastBlockMeta) {
       await db.update(kvMetadata).set({ value: toBlock.toString() }).where(eq(kvMetadata.key, 'last_indexed_block')).run();
     } else {

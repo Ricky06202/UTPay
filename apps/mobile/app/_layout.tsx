@@ -28,8 +28,15 @@ function RootLayoutNav() {
       // Si no hay usuario y no estamos en auth, redirigir a login
       router.replace('/login');
     } else if (user && inAuthGroup) {
-      // Si hay usuario y estamos en auth, redirigir a la app principal
-      router.replace('/(tabs)');
+      // Si hay usuario y estamos en auth, redirigir según el rol
+      if (user.role === 'admin') {
+        router.replace('/admin');
+      } else {
+        router.replace('/(tabs)');
+      }
+    } else if (user && user.role === 'admin' && segments[0] === '(tabs)') {
+      // Los administradores no deben entrar a la sección de estudiantes
+      router.replace('/admin');
     }
   }, [user, isLoading, segments]);
 
@@ -38,6 +45,7 @@ function RootLayoutNav() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="admin/index" options={{ headerShown: false, presentation: 'modal' }} />
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>

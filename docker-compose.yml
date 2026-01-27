@@ -14,6 +14,7 @@ services:
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
       - --rpc-http-host=0.0.0.0
+      - --min-gas-price=0
       - --rpc-ws-enabled
       - --rpc-ws-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --rpc-ws-port=8546
@@ -43,6 +44,7 @@ services:
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
       - --rpc-http-host=0.0.0.0
+      - --min-gas-price=0
       - --p2p-port=30303
       - --bootnodes=enode://7b4385317137839eb40901d3bdae93ab670ee47be439ce4c381fe2d340bc999d14372f3b297299a70333b07a5aaa5d432e6fb3888ce2568b90ab3186c8a07891@172.16.239.11:30303
     networks:
@@ -66,6 +68,7 @@ services:
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
       - --rpc-http-host=0.0.0.0
+      - --min-gas-price=0
       - --p2p-port=30303
       - --bootnodes=enode://7b4385317137839eb40901d3bdae93ab670ee47be439ce4c381fe2d340bc999d14372f3b297299a70333b07a5aaa5d432e6fb3888ce2568b90ab3186c8a07891@172.16.239.11:30303
     networks:
@@ -89,6 +92,7 @@ services:
       - --rpc-http-cors-origins="*"
       - --rpc-http-port=8545
       - --rpc-http-host=0.0.0.0
+      - --min-gas-price=0
       - --p2p-port=30303
       - --bootnodes=enode://7b4385317137839eb40901d3bdae93ab670ee47be439ce4c381fe2d340bc999d14372f3b297299a70333b07a5aaa5d432e6fb3888ce2568b90ab3186c8a07891@172.16.239.11:30303
     networks:
@@ -98,7 +102,7 @@ services:
       - node1
 
   blockscout:
-    image: blockscout/blockscout:6.2.1
+    image: blockscout/blockscout:6.9.1
     container_name: utpay-blockscout
     restart: always
     command: sh -c "bin/blockscout eval 'Explorer.ReleaseTasks.create_and_migrate()' && bin/blockscout start"
@@ -112,28 +116,22 @@ services:
       - ETHEREUM_JSONRPC_WS_URL=ws://node1:8546
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/blockscout?ssl=false
       - REDIS_URL=redis://redis:6379/0
-      - INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER=true
-      - INDEXER_DISABLE_BLOCK_REWARD_FETCHER=true
       - INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER=true
-      - INDEXER_DISABLE_COIN_BALANCE_FETCHER=true
-      - INDEXER_DISABLE_BENEFICIARIES_FETCHER=true
-      - DISABLE_EXCHANGE_RATES=true
-      - SECRET_KEY_BASE=56eb02058b7311b0dc400e475c015792440221ccc0c0223101818d6bc3d2d03d27462bcbd99f9449bc27891c7848332947254502802202022020220202202022
-      - ECTO_USE_SSL=false
-      - CHAIN_ID=2026
-      - SHOW_PRICE_CHART=false
-      - SHOW_TESTNET_LABEL=true
-      - LOGO=/images/blockscout_logo.svg
-      - COIN_NAME=UTPay
-      - COIN_SYMBOL=UTP
+      - INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER=true
+      - SECRET_KEY_BASE=5678901234567890123456789012345678901234567890123456789012345678
+      - CHECK_ORIGIN=false
     ports:
-      - "4000:4000"
+      - "4001:4000"
     networks:
       - utpay_net
     depends_on:
-      - node1
       - db
       - redis
+      - node1
+    links:
+      - db
+      - redis
+      - node1
 
   db:
     image: postgres:15
@@ -156,6 +154,70 @@ services:
     image: redis:7
     container_name: utpay-redis
     restart: always
+    networks:
+      - utpay_net
+
+  sirato-mongo:
+    image: mongo:5.0.8
+    container_name: sirato-mongo
+    environment:
+      - MONGO_INITDB_DATABASE=epirus
+    networks:
+      - utpay_net
+
+  sirato-api:
+    image: web3labs/epirus-free-api:latest
+    container_name: sirato-api
+    environment:
+      - NODE_ENDPOINT=http://node1:8545
+      - MONGO_CLIENT_URI=mongodb://sirato-mongo:27017
+      - MONGO_DB_NAME=epirus
+      - SPRING_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_HOST=redis
+      - REDIS_HOST=redis
+    depends_on:
+      - sirato-mongo
+      - redis
+    networks:
+      - utpay_net
+
+  sirato-web:
+    image: web3labs/epirus-free-web:latest
+    container_name: sirato-web
+    environment:
+      - API_URL=http://localhost:4000/api
+      - WS_API_URL=ws://localhost:4000/api
+    depends_on:
+      - sirato-api
+    networks:
+      - utpay_net
+
+  sirato-ingestion:
+    image: web3labs/epirus-free-ingestion:latest
+    container_name: sirato-ingestion
+    environment:
+      - NODE_ENDPOINT=http://node1:8545
+      - MONGO_CLIENT_URI=mongodb://sirato-mongo:27017
+      - MONGO_DB_NAME=epirus
+      - SPRING_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_HOST=redis
+      - REDIS_HOST=redis
+    depends_on:
+      - sirato-mongo
+      - redis
+    networks:
+      - utpay_net
+
+  sirato-nginx:
+    image: nginx:latest
+    container_name: sirato-nginx
+    volumes:
+      - ./sirato/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "4000:80"
+    depends_on:
+      - sirato-web
+      - sirato-api
     networks:
       - utpay_net
 

@@ -436,7 +436,7 @@ export default function MissionsScreen() {
         </View>
         <View className="items-center px-4 py-2 bg-green-50 rounded-2xl dark:bg-green-900/20 flex-row">
           <UTPSymbol size={16} color="#16a34a" containerStyle={{ marginRight: 6 }} />
-          <Text className="text-lg font-black text-green-600 dark:text-green-400">{item.reward.toFixed(2)}</Text>
+          <Text className="text-lg font-black text-green-600 dark:text-green-400">{Number(item.reward || 0).toFixed(2)}</Text>
         </View>
       </View>
 
@@ -493,7 +493,7 @@ export default function MissionsScreen() {
                 <Text className="text-[10px] text-gray-400 uppercase font-bold">Tu Oferta</Text>
                 <View className="flex-row items-center">
                   <UTPSymbol size={12} color="#9333ea" containerStyle={{ marginRight: 4 }} />
-                  <Text className="text-xs font-bold text-purple-600">{item.myBid?.toFixed(2)}</Text>
+                  <Text className="text-xs font-bold text-purple-600">{Number(item.myBid || 0).toFixed(2)}</Text>
                 </View>
               </View>
             ) : null}
@@ -724,7 +724,7 @@ export default function MissionsScreen() {
                     <View className="flex-1 mr-4">
                       <Text className="text-lg font-bold text-gray-900 dark:text-white">{item.studentName}</Text>
                       <View className="flex-row items-center mb-1">
-                        <Text className="mr-2 text-sm font-black text-green-600 dark:text-green-400">${item.bidAmount.toFixed(2)}</Text>
+                        <Text className="mr-2 text-sm font-black text-green-600 dark:text-green-400">${Number(item.bidAmount || 0).toFixed(2)}</Text>
                         <Text className="text-[10px] text-gray-400 uppercase font-bold">Oferta</Text>
                       </View>
                       <Text className="text-sm text-gray-500 dark:text-gray-400" numberOfLines={2}>

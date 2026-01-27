@@ -46,6 +46,19 @@ const MAPPING = {
   'person.crop.circle.badge.plus': 'person-add',
   'arrow.up.right.circle.fill': 'arrow-circle-up',
   'arrow.down.left.circle.fill': 'arrow-circle-down',
+  'shield.fill': 'shield',
+  'chevron.left': 'chevron-left',
+  'arrow.up.arrow.down.circle.fill': 'swap-vert',
+  'cart.fill': 'shopping-cart',
+  'assignment.fill': 'assignment',
+  'checkmark.seal.fill': 'verified',
+  'network': 'lan',
+  'doc.text.magnifyingglass': 'manage-search',
+  'creditcard.fill': 'credit-card',
+  'plus.circle.fill': 'add-circle',
+  'minus.circle.fill': 'remove-circle',
+  'magnifyingglass': 'search',
+  'bolt.fill': 'bolt',
 } as const;
 
 export type IconSymbolName = keyof typeof MAPPING;

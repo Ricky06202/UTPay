@@ -1,5 +1,5 @@
-import 'react-native-get-random-values';
 import { decode, encode } from 'base-64';
+import 'react-native-get-random-values';
 
 if (!global.btoa) {
   global.btoa = encode;
@@ -22,18 +22,22 @@ const RPC_URL = Platform.OS === 'web'
 const CHAIN_ID = 2026;
 
 // Dirección del contrato UTPay
-export const CONTRACT_ADDRESS = '0x948B3c65b89DF0B4894ABE91E6D02FE579834F8F';
+export const CONTRACT_ADDRESS = '0x8464135c8F25Da09e49BC8782676a84730C318bC';
 
 // ABI del contrato UTPay
 export const CONTRACT_ABI = [
     "function registerStudent(string memory _email, address _wallet) public",
     "function updateWallet(string memory _email, address _newWallet) public",
     "function mint(string memory _email, uint256 _amount) public",
+    "function burn(string memory _email, uint256 _amount) public",
     "function transferByEmail(string memory _toEmail, uint256 _amount, string memory _metadata) public",
     "function getBalance(string memory _email) public view returns (uint256)",
     "function getEmailByWallet(address _wallet) public view returns (string memory)",
-    "event Transfer(string indexed fromEmail, string indexed toEmail, uint256 amount, string metadata)",
-    "event WalletUpdated(string indexed email, address oldWallet, address newWallet)"
+    "event Transfer(string fromEmail, string toEmail, uint256 amount, string metadata)",
+    "event WalletUpdated(string email, address oldWallet, address newWallet)",
+    "event StudentRegistered(string email, address wallet)",
+    "event Mint(string email, uint256 amount)",
+    "event Burn(string email, uint256 amount)"
 ];
 
 // Provider para conectarse a la blockchain
@@ -58,7 +62,7 @@ export const getUTPBalance = async (email: string): Promise<string> => {
   try {
     const contract = getUTPayContract();
     const balance = await contract.getBalance(email);
-    return ethers.utils.formatEther(balance);
+    return ethers.utils.formatUnits(balance, 2);
   } catch (error) {
     console.error('Error al obtener balance de UTPay:', error);
     return '0.0';

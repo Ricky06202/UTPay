@@ -134,7 +134,7 @@ export default function ExploreScreen() {
                   <View className="flex-shrink-0 ml-2 flex-row items-center">
                     <UTPSymbol size={18} color={!isExpense ? '#22c55e' : '#ef4444'} containerStyle={{ marginRight: 6 }} />
                     <Text className={`font-bold text-2xl ${!isExpense ? 'text-green-500' : 'text-red-500'}`}>
-                      {!isExpense ? '+' : '-'}{item.amount.toFixed(2)}
+                      {!isExpense ? '+' : '-'}{Number(item.amount || 0).toFixed(2)}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -165,10 +165,10 @@ export default function ExploreScreen() {
               <Text className="text-3xl font-black text-gray-900 dark:text-white flex-row items-center">
                 {selectedTransaction?.senderId === user?.id ? '-' : '+'}
                 <UTPSymbol size={24} color={selectedTransaction?.senderId === user?.id ? '#ef4444' : '#22c55e'} containerStyle={{ marginHorizontal: 4 }} />
-                {selectedTransaction?.amount?.toFixed(2)}
+                {Number(selectedTransaction?.amount || 0).toFixed(2)}
               </Text>
               <Text className="text-gray-500 dark:text-gray-400 mt-1">
-                {selectedTransaction ? new Date(selectedTransaction.createdAt).toLocaleString() : ''}
+                {selectedTransaction ? new Date(Number(selectedTransaction.createdAt) * 1000).toLocaleString() : ''}
               </Text>
             </View>
 
