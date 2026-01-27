@@ -9,11 +9,31 @@ export const users = sqliteTable("users", {
   walletAddress: text("wallet_address"), // Guardamos el reflejo de la billetera actual
   balance: real("balance").default(0), // Balance sincronizado con la blockchain
   role: text("role").default('student'), // student, admin, cafeteria
-  academicIndex: real("academic_index").default(0), // Índice académico (0.0 - 5.0)
-  runningDistance: real("running_distance").default(0), // Km recorridos
-  socialHours: real("social_hours").default(0), // Horas sociales acumuladas
-  creditScore: integer("credit_score").default(0), // Score calculado (0-100)
-  activeLoan: real("active_loan").default(0), // Deuda actual de micro-crédito
+  
+  // --- Hexágono de Mérito (v2.0) ---
+  // 1. Intelecto
+  statIntellect: real("stat_intellect").default(0), // 0.0 - 3.0
+  
+  // 2. Fortaleza (Híbrido Running)
+  statStrengthConsistency: integer("stat_strength_consistency").default(0), // Sesiones/mes
+  statStrengthPR5k: integer("stat_strength_pr_5k").default(0), // Tiempo en segundos
+  statStrengthPR10k: integer("stat_strength_pr_10k").default(0), // Tiempo en segundos
+  statStrengthPR21k: integer("stat_strength_pr_21k").default(0), // Tiempo en segundos
+  
+  // 3. Estrategia
+  statStrategy: integer("stat_strategy").default(1200), // ELO Ajedrez
+  
+  // 4. Zen
+  statZen: integer("stat_zen").default(0), // Minutos totales meditación
+  
+  // 5. Servicio
+  statService: integer("stat_service").default(0), // Horas acumuladas
+  
+  // 6. Honor
+  statHonor: real("stat_honor").default(5.0), // Promedio P2P (0.0 - 5.0)
+  
+  creditScore: integer("credit_score").default(0), // Score total (0-100)
+  activeLoan: real("active_loan").default(0), // Deuda actual
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 

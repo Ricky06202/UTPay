@@ -1,3 +1,4 @@
+import { CreditMeritSection } from '@/components/CreditMeritSection';
 import { LogoutButton } from '@/components/LogoutButton';
 import { FeedbackModal } from '@/components/ui/FeedbackModal';
 import { IconSymbol } from '@/components/ui/icon-symbol';

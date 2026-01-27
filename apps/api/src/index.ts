@@ -265,9 +265,15 @@ app.get('/auth/me/:id', async (c) => {
         walletAddress: user.walletAddress,
         balance: user.balance || 0,
         role: user.role,
-        academicIndex: user.academicIndex || 0,
-        runningDistance: user.runningDistance || 0,
-        socialHours: user.socialHours || 0,
+        statIntellect: user.statIntellect || 0,
+        statStrengthConsistency: user.statStrengthConsistency || 0,
+        statStrengthPR5k: user.statStrengthPR5k || 0,
+        statStrengthPR10k: user.statStrengthPR10k || 0,
+        statStrengthPR21k: user.statStrengthPR21k || 0,
+        statStrategy: user.statStrategy || 1200,
+        statZen: user.statZen || 0,
+        statService: user.statService || 0,
+        statHonor: user.statHonor || 5.0,
         creditScore: user.creditScore || 0,
         activeLoan: user.activeLoan || 0
       } 
@@ -280,21 +286,75 @@ app.get('/auth/me/:id', async (c) => {
 // Endpoint para actualizar estadísticas de mérito (Simulación de fuente oficial)
 app.post('/users/update-merit', async (c) => {
   try {
-    const { email, academicIndex, runningDistance, socialHours } = await c.req.json()
+    const { 
+      email, 
+      statIntellect, 
+      statStrengthConsistency, 
+      statStrengthPR5k, 
+      statStrengthPR10k, 
+      statStrengthPR21k, 
+      statStrategy, 
+      statZen, 
+      statService,
+      statHonor 
+    } = await c.req.json()
     const db = createDb(c.env.DB)
     
-    // 1. Calcular Credit Score (Algoritmo de Tesis)
-    // Fórmula base: (Indice * 10) + (Km * 2) + (Horas / 2)
-    // Limitado a 100
-    let score = (academicIndex * 10) + (runningDistance * 2) + (socialHours / 2)
-    score = Math.min(Math.round(score), 100)
+    // 1. Calcular Puntaje de Fortaleza (Híbrido Running)
+    // Lógica de Constancia (60%): (Sesiones / 12) * 100
+    const puntosConstancia = Math.min((statStrengthConsistency / 12) * 100, 100)
+    
+    // Lógica de PR (40%): El mejor de las 3 distancias
+    const calculatePRPoints = (time: number, d5: number, d8: number, d10: number) => {
+      if (!time || time === 0) return 0
+      if (time <= d10) return 100
+      if (time <= d8) return 80 + (20 * (d8 - time) / (d8 - d10))
+      if (time <= d5) return 60 + (20 * (d5 - time) / (d5 - d8))
+      return Math.max(0, 60 * (1 - (time - d5) / d5))
+    }
 
-    // 2. Actualizar DB Local
+    // Umbrales (segundos): 100pts, 80pts, 60pts
+    const score5k = calculatePRPoints(statStrengthPR5k, 1800, 1500, 1200) // 30m, 25m, 20m
+    const score10k = calculatePRPoints(statStrengthPR10k, 3600, 3000, 2400) // 60m, 50m, 40m
+    const score21k = calculatePRPoints(statStrengthPR21k, 7800, 6600, 5400) // 130m, 110m, 90m
+    
+    const mejorPR = Math.max(score5k, score10k, score21k)
+    const puntosFortalezaTotal = (puntosConstancia * 0.6) + (mejorPR * 0.4)
+
+    // 2. Calcular Credit Score Global (El Hexágono de Mérito v2.0)
+    // 1. Intelecto (30%): Escala 0-3. (index / 3) * 30
+    const pilarIntelecto = (Math.min(statIntellect, 3) / 3) * 30
+    
+    // 2. Fortaleza (20%): Aplicamos el puntaje total de fortaleza a su peso
+    const pilarFortaleza = (puntosFortalezaTotal / 100) * 20
+    
+    // 3. Estrategia (15%): ELO (1200-2000). ((elo - 1200) / 800) * 15
+    const pilarEstrategia = (Math.max(0, Math.min(statStrategy - 1200, 800)) / 800) * 15
+    
+    // 4. Zen (10%): Minutos totales (ej. 300 min/mes para el tope). (minutos / 300) * 10
+    const pilarZen = (Math.min(statZen, 300) / 300) * 10
+    
+    // 5. Servicio (15%): 100 horas. (horas / 100) * 15
+    const pilarServicio = (Math.min(statService, 100) / 100) * 15
+    
+    // 6. Honor (10%): Estrellas 0-5. (estrellas / 5) * 10
+    const pilarHonor = (Math.min(statHonor, 5) / 5) * 10
+
+    let score = Math.round(pilarIntelecto + pilarFortaleza + pilarEstrategia + pilarZen + pilarServicio + pilarHonor)
+    score = Math.min(score, 100)
+
+    // 3. Actualizar DB Local
     await db.update(users)
       .set({ 
-        academicIndex, 
-        runningDistance, 
-        socialHours, 
+        statIntellect, 
+        statStrengthConsistency, 
+        statStrengthPR5k,
+        statStrengthPR10k,
+        statStrengthPR21k,
+        statStrategy,
+        statZen,
+        statService,
+        statHonor,
         creditScore: score 
       })
       .where(eq(users.email, email))
