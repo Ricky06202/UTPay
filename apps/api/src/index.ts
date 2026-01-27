@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { and, desc, eq, or, sql } from 'drizzle-orm'
-import { ethers, Wallet } from 'ethers'
+import { formatEther, parseUnits, Wallet } from 'ethers'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { SignJWT } from 'jose'
@@ -432,7 +432,7 @@ app.post('/internal/confirm-transaction', async (c) => {
       if (fromEmail && fromEmail !== 'SISTEMA') {
         try {
           const balance = await contract.getBalance(fromEmail);
-          await db.update(users).set({ balance: Number(ethers.formatUnits(balance, 2)) }).where(eq(users.email, fromEmail)).run();
+          await db.update(users).set({ balance: Number(formatEther(balance)) }).where(eq(users.email, fromEmail)).run();
           console.log(`Balance actualizado (Blockchain) para ${fromEmail}`);
         } catch (e) {
           console.error(`Error actualizando balance de ${fromEmail}:`, e);
@@ -442,7 +442,7 @@ app.post('/internal/confirm-transaction', async (c) => {
       if (toEmail && toEmail !== 'SISTEMA') {
         try {
           const balance = await contract.getBalance(toEmail);
-          await db.update(users).set({ balance: Number(ethers.formatUnits(balance, 2)) }).where(eq(users.email, toEmail)).run();
+          await db.update(users).set({ balance: Number(formatEther(balance)) }).where(eq(users.email, toEmail)).run();
           console.log(`Balance actualizado (Blockchain) para ${toEmail}`);
         } catch (e) {
           console.error(`Error actualizando balance de ${toEmail}:`, e);
@@ -466,7 +466,7 @@ app.post('/internal/sync-user-balance', async (c) => {
 
     const contract = getReadOnlyContract(rpcUrl)
     const balance = await contract.getBalance(email)
-    const balanceFormatted = Number(ethers.formatUnits(balance, 2))
+    const balanceFormatted = Number(formatEther(balance))
 
     const db = createDb(c.env.DB)
     await db.update(users)
@@ -501,8 +501,27 @@ app.post('/internal/update-user-wallet', async (c) => {
 app.get('/users', async (c) => {
   try {
     const db = createDb(c.env.DB)
-    const result = await db.select().from(users).all()
-    return c.json(result)
+    // 1. Obtener todos los usuarios que NO son admin
+    const result = await db.select().from(users).where(sql`${users.role} != 'admin' OR ${users.role} IS NULL`).all()
+    
+    // 2. Obtener saldos reales de la blockchain para cada usuario
+    const contract = getReadOnlyContract(c.env.RPC_URL)
+    
+    const usersWithRealBalance = await Promise.all(result.map(async (u) => {
+      try {
+        if (!u.email) return { ...u, balance: "0" };
+        const balance = await contract.getBalance(u.email);
+        return { 
+          ...u, 
+          balance: formatEther(balance) 
+        };
+      } catch (err) {
+        console.error(`Error obteniendo saldo para ${u.email}:`, err);
+        return { ...u, balance: "0" };
+      }
+    }));
+
+    return c.json(usersWithRealBalance)
   } catch (e: any) {
     return c.json({ err: e.message }, 500)
   }
@@ -591,7 +610,8 @@ app.post('/admin/mint', async (c) => {
     // 1. Intentar el MINT directamente
     try {
       console.log(`Preparando transacción de mint para ${amount} UTP a ${email}...`);
-      const amountInUnits = BigInt(Math.round(Number(amount) * 100))
+      // En ethers v6, parseUnits está directamente en ethers o se importa
+      const amountInUnits = parseUnits(amount.toString(), 18);
       
       // Intentar enviar la transacción directamente
       const tx = await contract.mint(email, amountInUnits, { gasPrice: 0 })
@@ -604,6 +624,10 @@ app.post('/admin/mint', async (c) => {
           console.log(`[Mint-BG] Esperando confirmación para ${tx.hash}...`)
           const receipt = await tx.wait()
           console.log(`[Mint-BG] Confirmada en bloque ${receipt.blockNumber}`)
+          
+          // Forzar una indexación inmediata tras la confirmación
+          console.log(`[Mint-BG] Ejecutando indexador inmediato...`);
+          await runIndexer(c.env);
         } catch (waitErr: any) {
           console.error(`[Mint-BG] Error esperando confirmación de ${tx.hash}:`, waitErr.message)
         }
@@ -644,12 +668,19 @@ app.post('/admin/mint', async (c) => {
           await regTx.wait();
           console.log('Registro exitoso. Enviando mint...');
           
+          const amountInUnits = parseUnits(amount.toString(), 18);
           const retryTx = await contract.mint(email, amountInUnits, { gasPrice: 0 });
           
           // El segundo mint lo enviamos y respondemos rápido también
           c.executionCtx.waitUntil((async () => {
-            await retryTx.wait();
-            console.log(`[Mint-Retry-BG] Mint tras registro confirmado: ${retryTx.hash}`);
+            try {
+              await retryTx.wait();
+              console.log(`[Mint-Retry-BG] Mint tras registro confirmado: ${retryTx.hash}`);
+              // También indexar aquí
+              await runIndexer(c.env);
+            } catch (err: any) {
+              console.error(`[Mint-Retry-BG] Error en confirmación:`, err.message);
+            }
           })());
 
           return c.json({ 
@@ -698,7 +729,7 @@ app.post('/admin/burn', async (c) => {
     if (!rpcUrl) return c.json({ success: false, message: 'Falta RPC_URL' }, 500);
 
     const contract = getContract(rpcUrl)
-    const amountInUnits = BigInt(Math.round(Number(amount) * 100))
+    const amountInUnits = parseUnits(amount.toString(), 18);
     
     try {
       console.log(`Eliminando ${amount} UTP de ${email}...`);
@@ -708,6 +739,10 @@ app.post('/admin/burn', async (c) => {
         try {
           await tx.wait()
           console.log(`[Burn-BG] Confirmado: ${tx.hash}`)
+          
+          // Forzar una indexación inmediata tras la confirmación
+          console.log(`[Burn-BG] Ejecutando indexador inmediato...`);
+          await runIndexer(c.env);
         } catch (waitErr: any) {
           console.error(`[Burn-BG] Error en confirmación:`, waitErr.message)
         }
@@ -1207,34 +1242,57 @@ export default {
 async function runIndexer(env: Bindings) {
   console.log("🚀 Iniciando ronda de indexación (Scheduled)...");
   const db = createDb(env.DB);
-  const contract = getReadOnlyContract();
+  const contract = getReadOnlyContract(env.RPC_URL);
 
   try {
     // 1. Obtener el último bloque procesado de la DB
     const lastBlockMeta = await db.select().from(kvMetadata).where(eq(kvMetadata.key, 'last_indexed_block')).get();
-    let fromBlock = lastBlockMeta ? parseInt(lastBlockMeta.value) + 1 : 0;
+    let fromBlock = lastBlockMeta ? parseInt(lastBlockMeta.value) : 0;
     
     // 2. Obtener el bloque actual de la red
-    const currentBlock = await contract.runner?.provider?.getBlockNumber();
-    if (!currentBlock || fromBlock > currentBlock) {
+    let currentBlock: number;
+    try {
+      const blockNumber = await contract.runner?.provider?.getBlockNumber();
+      if (blockNumber === undefined) throw new Error("getBlockNumber returned undefined");
+      currentBlock = blockNumber;
+    } catch (rpcErr: any) {
+      console.error(`❌ Error al obtener bloque actual de RPC (${env.RPC_URL}):`, rpcErr.message);
+      return;
+    }
+
+    console.log(`[Indexer] Bloque actual en red: ${currentBlock}, Último indexado: ${fromBlock}`);
+
+    // Si la blockchain se reinició o el fromBlock es mayor, resetear
+    if (fromBlock > currentBlock) {
+      console.log(`⚠️ [Indexer] Detectado reinicio de blockchain o error de sincronía. Reseteando de ${fromBlock} a ${currentBlock}`);
+      fromBlock = Math.max(0, currentBlock - 100); // Empezar un poco atrás por seguridad
+    }
+
+    if (fromBlock >= currentBlock) {
       console.log("No hay bloques nuevos para procesar.");
       return;
     }
 
-    // Limitamos a procesar 1000 bloques por vez para no saturar el Worker
-    const toBlock = Math.min(fromBlock + 1000, currentBlock);
-    console.log(`Buscando eventos desde el bloque ${fromBlock} al ${toBlock}...`);
+    // Empezamos desde el siguiente bloque
+    const startBlock = fromBlock + 1;
+    const toBlock = Math.min(startBlock + 1000, currentBlock);
+    console.log(`Buscando eventos desde el bloque ${startBlock} al ${toBlock}...`);
+
+    // Usar el mismo contrato para todas las consultas de balance para eficiencia
+    const contractReader = contract; 
 
     // 3. Consultar eventos de Transferencia
+    console.log("Consultando eventos de Transfer...");
     const transferFilter = contract.filters.Transfer();
-    const transferEvents = await contract.queryFilter(transferFilter, fromBlock, toBlock);
+    const transferEvents = await contract.queryFilter(transferFilter, startBlock, toBlock);
+    console.log(`Encontrados ${transferEvents.length} eventos de Transfer`);
 
     for (const event of transferEvents) {
       if ('args' in event && event.args) {
         const [fromEmail, toEmail, amount, metadata] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`✨ Sincronizando Transferencia: ${fromEmail} -> ${toEmail} (${ethers.formatUnits(amount, 2)} UTP)`);
+        console.log(`✨ Sincronizando Transferencia: ${fromEmail} -> ${toEmail} (${formatEther(amount)} UTP)`);
 
         // Evitar duplicados
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
@@ -1248,36 +1306,36 @@ async function runIndexer(env: Bindings) {
             receiverId: receiver?.id || null,
             senderEmail: fromEmail,
             receiverEmail: toEmail,
-            amount: Number(ethers.formatUnits(amount, 2)),
+            amount: Number(formatEther(amount)),
             description: metadata || '',
             status: 'success'
           }).run();
         }
 
         // Sincronizar balances de los involucrados
-        const rpcUrl = env.RPC_URL;
-        const contractReader = getReadOnlyContract(rpcUrl);
         if (fromEmail && fromEmail !== 'SISTEMA') {
           const bal = await contractReader.getBalance(fromEmail);
-          await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, fromEmail)).run();
+          await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, fromEmail)).run();
         }
         if (toEmail && toEmail !== 'SISTEMA') {
           const bal = await contractReader.getBalance(toEmail);
-          await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, toEmail)).run();
+          await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, toEmail)).run();
         }
       }
     }
 
     // 4. Consultar eventos de Mint (Carga de saldo)
+    console.log("Consultando eventos de Mint...");
     const mintFilter = contract.filters.Mint();
-    const mintEvents = await contract.queryFilter(mintFilter, fromBlock, toBlock);
+    const mintEvents = await contract.queryFilter(mintFilter, startBlock, toBlock);
+    console.log(`Encontrados ${mintEvents.length} eventos de Mint`);
 
     for (const event of mintEvents) {
       if ('args' in event && event.args) {
         const [email, amount] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`💰 Sincronizando Mint: ${email} (+${ethers.formatUnits(amount, 2)} UTP)`);
+        console.log(`✨ Sincronizando Mint: ${email} (+${formatEther(amount)} UTP)`);
 
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
         if (!existing) {
@@ -1289,30 +1347,30 @@ async function runIndexer(env: Bindings) {
             receiverId: receiver?.id || null,
             senderEmail: 'SISTEMA',
             receiverEmail: email,
-            amount: Number(ethers.formatUnits(amount, 2)),
+            amount: Number(formatEther(amount)),
             description: 'Carga de saldo por Admin',
             status: 'success'
           }).run();
         }
 
         // Sincronizar balance del receptor
-        const rpcUrl = env.RPC_URL;
-        const contractReader = getReadOnlyContract(rpcUrl);
         const bal = await contractReader.getBalance(email);
-        await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, email)).run();
+        await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, email)).run();
       }
     }
 
     // 5. Consultar eventos de Burn (Retiro de saldo)
+    console.log("Consultando eventos de Burn...");
     const burnFilter = contract.filters.Burn();
-    const burnEvents = await contract.queryFilter(burnFilter, fromBlock, toBlock);
+    const burnEvents = await contract.queryFilter(burnFilter, startBlock, toBlock);
+    console.log(`Encontrados ${burnEvents.length} eventos de Burn`);
 
     for (const event of burnEvents) {
       if ('args' in event && event.args) {
         const [email, amount] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`🔥 Sincronizando Burn: ${email} (-${ethers.formatUnits(amount, 2)} UTP)`);
+        console.log(`✨ Sincronizando Burn: ${email} (-${formatEther(amount)} UTP)`);
 
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
         if (!existing) {
@@ -1324,17 +1382,15 @@ async function runIndexer(env: Bindings) {
             receiverId: null,
             senderEmail: email,
             receiverEmail: 'SISTEMA',
-            amount: Number(ethers.formatUnits(amount, 2)),
+            amount: Number(formatEther(amount)),
             description: 'Retiro de saldo por Admin',
             status: 'success'
           }).run();
         }
 
-        // Sincronizar balance del emisor (el que sufrió el burn)
-        const rpcUrl = env.RPC_URL;
-        const contractReader = getReadOnlyContract(rpcUrl);
+        // Sincronizar balance del emisor
         const bal = await contractReader.getBalance(email);
-        await db.update(users).set({ balance: Number(ethers.formatUnits(bal, 2)) }).where(eq(users.email, email)).run();
+        await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, email)).run();
       }
     }
 

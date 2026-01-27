@@ -168,6 +168,8 @@ services:
   sirato-api:
     image: web3labs/epirus-free-api:latest
     container_name: sirato-api
+    volumes:
+      - ./sirato/abis:/opt/epirus/abis
     environment:
       - NODE_ENDPOINT=http://node1:8545
       - MONGO_CLIENT_URI=mongodb://sirato-mongo:27017
@@ -195,6 +197,8 @@ services:
   sirato-ingestion:
     image: web3labs/epirus-free-ingestion:latest
     container_name: sirato-ingestion
+    volumes:
+      - ./sirato/abis:/opt/epirus/abis
     environment:
       - NODE_ENDPOINT=http://node1:8545
       - MONGO_CLIENT_URI=mongodb://sirato-mongo:27017

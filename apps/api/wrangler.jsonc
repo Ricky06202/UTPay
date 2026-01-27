@@ -10,7 +10,7 @@
     }
   ],
   "vars": {
-    "RPC_URL": "https://occupation-somehow-microwave-preston.trycloudflare.com"
+    "RPC_URL": "https://portraits-decreased-zen-authentication.trycloudflare.com"
   },
   "triggers": {
     "crons": ["* * * * *"]

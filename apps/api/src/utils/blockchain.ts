@@ -26,7 +26,7 @@ const ADMIN_PRIVATE_KEY = '0x0607f9d43e7d6637dcdf77c18b471f65d55165d79756750f23a
 const providerCache: Record<string, ethers.JsonRpcProvider> = {};
 
 export const getContract = (rpcUrl?: string) => {
-    const url = rpcUrl || 'https://occupation-somehow-microwave-preston.trycloudflare.com';
+    const url = rpcUrl || 'https://portraits-decreased-zen-authentication.trycloudflare.com';
     
     if (!providerCache[url]) {
         providerCache[url] = new ethers.JsonRpcProvider(url, undefined, {
@@ -40,7 +40,7 @@ export const getContract = (rpcUrl?: string) => {
 };
 
 export const getReadOnlyContract = (rpcUrl?: string) => {
-    const url = rpcUrl || 'https://occupation-somehow-microwave-preston.trycloudflare.com';
+    const url = rpcUrl || 'https://portraits-decreased-zen-authentication.trycloudflare.com';
     console.log(`[Blockchain] getReadOnlyContract - URL: ${url}`);
         
     const provider = new ethers.JsonRpcProvider(url, undefined, {
