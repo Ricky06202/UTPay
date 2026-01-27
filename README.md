@@ -66,6 +66,7 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 *   **Optimización de Conectividad Redis**: Corrección de errores críticos de conexión en `sirato-api` mediante la inyección de variables de entorno multiversión (`SPRING_REDIS_HOST`, `REDIS_HOST`), asegurando una persistencia de datos y caché eficiente.
 *   **Sincronización de Datos en Tiempo Real**: Verificación de la ingesta de datos desde los nodos de Besu (node1), logrando una sincronización completa del historial de la red y permitiendo la visualización inmediata de la actividad del UTP Coin.
 *   **Health Checks y Diagnóstico**: Implementación de endpoints de salud y monitoreo para todos los servicios de infraestructura, garantizando una disponibilidad del 100% durante las pruebas de estrés de la red.
+*   **Gestión de Suministro (Mint & Burn)**: Implementación de funciones de acuñación (`mint`) y quema (`burn`) en el contrato inteligente del UTP Coin. Esto permite un control dinámico sobre el suministro total de la moneda, facilitando la simulación de políticas monetarias universitarias y la gestión de incentivos para estudiantes.
 
 ### Día 2 (25 de Enero, 2026)
 *   **Transición a Billetera No Custodia**: Se eliminó el almacenamiento de llaves privadas y frases semilla en el servidor. Ahora, las llaves se generan localmente y se almacenan de forma segura en el dispositivo del usuario mediante `Expo SecureStore`, garantizando que solo el usuario tenga control total sobre sus fondos ("Real BTC Experience").
