@@ -9,6 +9,11 @@ export const users = sqliteTable("users", {
   walletAddress: text("wallet_address"), // Guardamos el reflejo de la billetera actual
   balance: real("balance").default(0), // Balance sincronizado con la blockchain
   role: text("role").default('student'), // student, admin, cafeteria
+  academicIndex: real("academic_index").default(0), // Índice académico (0.0 - 5.0)
+  runningDistance: real("running_distance").default(0), // Km recorridos
+  socialHours: real("social_hours").default(0), // Horas sociales acumuladas
+  creditScore: integer("credit_score").default(0), // Score calculado (0-100)
+  activeLoan: real("active_loan").default(0), // Deuda actual de micro-crédito
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 

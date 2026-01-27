@@ -24,12 +24,23 @@ contract UTPay {
     mapping(string => Student) public students;
     // Mapping de Billetera -> Correo (para saber quién firma)
     mapping(address => string) public walletToEmail;
+    
+    // --- NUEVAS VARIABLES: SISTEMA DE MÉRITO Y CRÉDITO ---
+    mapping(string => uint256) public creditScore; // Score de 0 a 100 vinculado al correo
+    mapping(string => uint256) public activeLoans; // Préstamos activos por correo
+    uint256 public loanFund;                       // Fondo total disponible para préstamos
 
     event Transfer(string fromEmail, string toEmail, uint256 amount, string metadata);
     event WalletUpdated(string email, address oldWallet, address newWallet);
     event StudentRegistered(string email, address wallet);
     event Mint(string email, uint256 amount);
     event Burn(string email, uint256 amount);
+    
+    // Eventos del Sistema de Crédito
+    event ScoreUpdated(string email, uint256 newScore);
+    event LoanRequested(string email, uint256 amount);
+    event LoanPaid(string email, uint256 amount);
+    event DonationReceived(address donor, uint256 amount);
 
     constructor() {
         admin = msg.sender;
@@ -38,6 +49,74 @@ contract UTPay {
     modifier onlyAdmin() {
         require(msg.sender == admin, "Solo la Universidad puede ejecutar esto");
         _;
+    }
+
+    // --- FUNCIONES DEL SISTEMA DE MÉRITO Y CRÉDITO ---
+
+    /**
+     * @dev Actualiza el Credit Score de un estudiante (Solo Admin).
+     * El score debe ser calculado en el backend basado en índice, running y horas sociales.
+     */
+    function updateCreditScore(string memory _email, uint256 _newScore) public onlyAdmin {
+        require(students[_email].isRegistered, "Estudiante no registrado");
+        require(_newScore <= 100, "El score no puede ser mayor a 100");
+        creditScore[_email] = _newScore;
+        emit ScoreUpdated(_email, _newScore);
+    }
+
+    /**
+     * @dev Permite a empresas o individuos donar al fondo de préstamos.
+     * En una red privada con tokens personalizados, esto requiere que el admin 
+     * transfiera los tokens al fondo (o use una billetera de tesorería).
+     */
+    function donateToFund(uint256 _amount) public {
+        string memory donorEmail = walletToEmail[msg.sender];
+        require(bytes(donorEmail).length > 0, "Donante debe estar registrado");
+        require(students[donorEmail].balance >= _amount, "Saldo insuficiente para donar");
+
+        students[donorEmail].balance -= _amount;
+        loanFund += _amount;
+
+        emit DonationReceived(msg.sender, _amount);
+    }
+
+    /**
+     * @dev Un estudiante solicita un micro-crédito basado en su mérito.
+     */
+    function requestLoan(uint256 _amount) public {
+        string memory email = walletToEmail[msg.sender];
+        require(bytes(email).length > 0, "Estudiante no registrado");
+        require(creditScore[email] >= 80, "Merito insuficiente (Score < 80)");
+        require(_amount <= loanFund, "No hay suficientes fondos en el sistema");
+        require(activeLoans[email] == 0, "Ya tienes un prestamo activo");
+
+        loanFund -= _amount;
+        students[email].balance += _amount;
+        activeLoans[email] = _amount;
+
+        emit LoanRequested(email, _amount);
+    }
+
+    /**
+     * @dev El estudiante devuelve el préstamo para mejorar su reputación.
+     */
+    function payLoan() public {
+        string memory email = walletToEmail[msg.sender];
+        uint256 debt = activeLoans[email];
+        require(debt > 0, "No tienes deudas pendientes");
+        require(students[email].balance >= debt, "Saldo insuficiente para pagar");
+
+        students[email].balance -= debt;
+        loanFund += debt;
+        activeLoans[email] = 0;
+
+        // Bono de mérito por pagar a tiempo (opcional, se puede manejar en backend)
+        if (creditScore[email] < 100) {
+            creditScore[email] += 2;
+            if (creditScore[email] > 100) creditScore[email] = 100;
+        }
+
+        emit LoanPaid(email, debt);
     }
 
     /**

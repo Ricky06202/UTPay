@@ -264,10 +264,123 @@ app.get('/auth/me/:id', async (c) => {
         email: user.email,
         walletAddress: user.walletAddress,
         balance: user.balance || 0,
-        role: user.role
+        role: user.role,
+        academicIndex: user.academicIndex || 0,
+        runningDistance: user.runningDistance || 0,
+        socialHours: user.socialHours || 0,
+        creditScore: user.creditScore || 0,
+        activeLoan: user.activeLoan || 0
       } 
     })
   } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// Endpoint para actualizar estadísticas de mérito (Simulación de fuente oficial)
+app.post('/users/update-merit', async (c) => {
+  try {
+    const { email, academicIndex, runningDistance, socialHours } = await c.req.json()
+    const db = createDb(c.env.DB)
+    
+    // 1. Calcular Credit Score (Algoritmo de Tesis)
+    // Fórmula base: (Indice * 10) + (Km * 2) + (Horas / 2)
+    // Limitado a 100
+    let score = (academicIndex * 10) + (runningDistance * 2) + (socialHours / 2)
+    score = Math.min(Math.round(score), 100)
+
+    // 2. Actualizar DB Local
+    await db.update(users)
+      .set({ 
+        academicIndex, 
+        runningDistance, 
+        socialHours, 
+        creditScore: score 
+      })
+      .where(eq(users.email, email))
+      .run()
+
+    // 3. Sincronizar con Blockchain (Credit Score)
+    const rpcUrl = c.env.RPC_URL
+    if (rpcUrl) {
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const contract = getContract(rpcUrl)
+          console.log(`[Merit] Sincronizando Score ${score} para ${email} en blockchain...`)
+          const tx = await contract.updateCreditScore(email, score)
+          await tx.wait()
+          console.log(`[Merit] Blockchain actualizada: ${tx.hash}`)
+        } catch (err: any) {
+          console.error('[Merit-Error] Falló sincronización blockchain:', err.message)
+        }
+      })())
+    }
+
+    return c.json({ 
+      success: true, 
+      message: 'Estadísticas de mérito actualizadas',
+      score 
+    })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// Endpoint para solicitar micro-crédito (Blockchain + DB)
+app.post('/transactions/request-loan', async (c) => {
+  try {
+    const { email, amount, walletAddress } = await c.req.json()
+    const db = createDb(c.env.DB)
+    
+    // 1. Verificar usuario y su mérito en DB
+    const user = await db.select().from(users).where(eq(users.email, email)).get()
+    if (!user) return c.json({ success: false, message: 'Usuario no encontrado' }, 404)
+    
+    if ((user.creditScore || 0) < 80) {
+      return c.json({ success: false, message: 'Mérito insuficiente (Score < 80)' }, 403)
+    }
+
+    if ((user.activeLoan || 0) > 0) {
+      return c.json({ success: false, message: 'Ya tienes un préstamo activo' }, 400)
+    }
+
+    // 2. Ejecutar en Blockchain
+    const rpcUrl = c.env.RPC_URL
+    if (!rpcUrl) return c.json({ success: false, message: 'Blockchain no disponible' }, 500)
+    
+    const contract = getContract(rpcUrl)
+    console.log(`[Loan] Procesando préstamo de ${amount} para ${email}...`)
+    
+    const tx = await contract.requestLoan(email, Math.round(amount))
+    await tx.wait()
+    
+    // 3. Actualizar DB Local
+    await db.update(users)
+      .set({ 
+        activeLoan: amount,
+        balance: sql`${users.balance} + ${amount}`
+      })
+      .where(eq(users.email, email))
+      .run()
+
+    // 4. Registrar la transacción en el historial
+    await db.insert(transactions).values({
+      txHash: tx.hash,
+      senderEmail: 'SISTEMA_CREDITO@utp.ac.pa',
+      receiverEmail: email,
+      receiverId: user.id,
+      amount: amount,
+      description: 'Micro-crédito por Mérito Estudiantil',
+      status: 'success'
+    })
+
+    return c.json({ 
+      success: true, 
+      message: 'Préstamo otorgado con éxito',
+      txHash: tx.hash 
+    })
+  } catch (e: any) {
+    console.error('[Loan-Error]', e.message)
     return c.json({ success: false, error: e.message }, 500)
   }
 })

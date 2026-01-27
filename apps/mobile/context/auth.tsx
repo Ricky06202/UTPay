@@ -13,6 +13,11 @@ type User = {
   seedPhrase?: string;
   balance?: string; // Nuevo: Balance obtenido del contrato vía API
   role?: 'student' | 'admin' | 'cafeteria';
+  academicIndex?: number;
+  runningDistance?: number;
+  socialHours?: number;
+  creditScore?: number;
+  activeLoan?: number;
 };
 
 type AuthContextType = {

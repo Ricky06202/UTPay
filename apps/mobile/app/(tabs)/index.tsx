@@ -709,6 +709,9 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Nueva Sección de Mérito y Crédito (Tesis) */}
+              <CreditMeritSection />
             </View>
 
             {/* Columna Derecha: Actividad (Solo en PC) */}
