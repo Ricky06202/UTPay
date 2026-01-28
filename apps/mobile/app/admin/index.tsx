@@ -45,20 +45,6 @@ export default function AdminPanel() {
     setRefreshing(false);
   }, [fetchStats]);
 
-  if (user?.role !== 'admin') {
-    return (
-      <View className="flex-1 items-center justify-center bg-white dark:bg-gray-900">
-        <Text className="text-xl font-bold text-red-500">Acceso Denegado</Text>
-        <TouchableOpacity 
-          onPress={() => router.replace('/(tabs)')}
-          className="mt-4 px-6 py-2 bg-blue-500 rounded-full"
-        >
-          <Text className="text-white font-bold">Volver al Inicio</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   const adminStats = [
     { title: 'Usuarios Totales', value: stats.totalUsers.toString(), icon: 'person.2.fill', color: 'text-blue-500', bg: 'bg-blue-100' },
     { title: 'Transacciones Hoy', value: stats.todayTransactions.toString(), icon: 'arrow.up.arrow.down.circle.fill', color: 'text-green-500', bg: 'bg-green-100' },
@@ -68,25 +54,23 @@ export default function AdminPanel() {
 
   const adminActions = [
     { name: 'Gestionar Usuarios', icon: 'person.crop.circle.badge.plus', description: 'Ver, editar o recuperar wallets de estudiantes.', route: '/admin/users' },
-    { name: 'Aprobar Misiones', icon: 'checkmark.seal.fill', description: 'Revisar y validar misiones universitarias.', route: '/admin/missions' },
     { name: 'Reportes y Auditoría', icon: 'doc.text.magnifyingglass', description: 'Ver historial completo de transacciones en la red.', route: '/admin/audit' },
   ];
 
   return (
     <ScrollView 
-      className="flex-1 bg-gray-50 dark:bg-gray-900"
+      className="flex-1"
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
       contentContainerStyle={{ 
-        paddingTop: insets.top, 
         paddingBottom: insets.bottom + 20,
-        alignItems: 'center'
+        alignItems: 'center',
+        paddingHorizontal: 24
       }}
     >
-      <View className={`px-6 w-full ${isDesktop ? 'max-w-5xl' : ''}`}>
         {/* Header */}
-        <View className="flex-row justify-between items-center py-6">
+        <View className="flex-row justify-between items-center py-6 w-full">
           <View>
             <Text className="text-2xl font-bold text-gray-900 dark:text-white">Panel Admin</Text>
             <Text className="text-sm text-gray-500 dark:text-gray-400">Gestión Central de UTPay</Text>
@@ -178,7 +162,6 @@ export default function AdminPanel() {
               </View>
             </View>
           </View>
-        </View>
       </View>
     </ScrollView>
   );

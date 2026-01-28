@@ -114,13 +114,10 @@ export default function TransactionAudit() {
   };
 
   return (
-    <View 
-      className="flex-1 bg-gray-50 dark:bg-gray-900"
-      style={{ paddingTop: insets.top }}
-    >
-      <View className={`flex-1 px-6 w-full self-center ${isDesktop ? 'max-w-5xl' : ''}`}>
+    <View className="flex-1 px-6">
         {/* Header */}
-        <View className="flex-row items-center py-6">
+      <View className="flex-row items-center justify-between py-6">
+        <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.replace('/admin')}
             className="p-2 mr-4 bg-white rounded-full shadow-sm dark:bg-gray-800"
@@ -132,6 +129,19 @@ export default function TransactionAudit() {
             <Text className="text-sm text-gray-500 dark:text-gray-400">Historial global de transacciones</Text>
           </View>
         </View>
+
+        <TouchableOpacity 
+          onPress={fetchTransactions}
+          disabled={loading}
+          className="p-3 bg-white rounded-2xl shadow-sm dark:bg-gray-800"
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#9333ea" />
+          ) : (
+            <IconSymbol name="arrow.clockwise" size={20} color="#9333ea" />
+          )}
+        </TouchableOpacity>
+      </View>
 
         {/* Search Bar */}
         <View className="flex-row items-center px-4 py-3 mb-6 bg-white rounded-2xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
@@ -164,6 +174,5 @@ export default function TransactionAudit() {
           />
         )}
       </View>
-    </View>
-  );
-}
+    );
+  }

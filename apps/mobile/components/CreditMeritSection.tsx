@@ -1,8 +1,32 @@
 import { API_URL } from '@/constants/api';
 import { useAuth } from '@/context/auth';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { IconSymbol } from './ui/icon-symbol';
+
+const StatBar = ({ label, value, max, color, icon, suffix = "", detail = "" }: any) => {
+  const percentage = Math.min((value / max) * 100, 100);
+  return (
+    <View className="mb-4">
+      <View className="flex-row justify-between items-center mb-1">
+        <View className="flex-row items-center">
+          <IconSymbol name={icon} size={14} color={color} />
+          <Text className="ml-2 text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</Text>
+        </View>
+        <View className="items-end">
+          <Text className="text-xs font-bold text-gray-900 dark:text-white">{value}{suffix}</Text>
+          {detail ? <Text className="text-[8px] text-gray-400">{detail}</Text> : null}
+        </View>
+      </View>
+      <View className="h-1.5 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+        <View 
+          className="h-full rounded-full" 
+          style={{ width: `${percentage}%`, backgroundColor: color }} 
+        />
+      </View>
+    </View>
+  );
+};
 
 export function CreditMeritSection() {
   const { user, refreshUser } = useAuth();
@@ -119,30 +143,6 @@ export function CreditMeritSection() {
     } finally {
       setIsSubmittingEvidence(false);
     }
-  };
-
-  const StatBar = ({ label, value, max, color, icon, suffix = "", detail = "" }: any) => {
-    const percentage = Math.min((value / max) * 100, 100);
-    return (
-      <View className="mb-4">
-        <View className="flex-row justify-between items-center mb-1">
-          <View className="flex-row items-center">
-            <IconSymbol name={icon} size={14} color={color} />
-            <Text className="ml-2 text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</Text>
-          </View>
-          <View className="items-end">
-            <Text className="text-xs font-bold text-gray-900 dark:text-white">{value}{suffix}</Text>
-            {detail ? <Text className="text-[8px] text-gray-400">{detail}</Text> : null}
-          </View>
-        </View>
-        <View className="h-1.5 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-          <View 
-            className="h-full rounded-full" 
-            style={{ width: `${percentage}%`, backgroundColor: color }} 
-          />
-        </View>
-      </View>
-    );
   };
 
   return (

@@ -8,7 +8,7 @@ pragma solidity ^0.8.0;
  * y no en la dirección de la billetera directamente.
  */
 contract UTPay {
-    address public admin;
+    mapping(address => bool) public admins;
     string public name = "UTPay University Token";
     string public symbol = "UTP";
     uint8 public decimals = 2;
@@ -41,14 +41,34 @@ contract UTPay {
     event LoanRequested(string email, uint256 amount);
     event LoanPaid(string email, uint256 amount);
     event DonationReceived(address donor, uint256 amount);
+    event AdminAdded(address indexed admin);
+    event AdminRemoved(address indexed admin);
 
     constructor() {
-        admin = msg.sender;
+        admins[msg.sender] = true;
     }
 
     modifier onlyAdmin() {
-        require(msg.sender == admin, "Solo la Universidad puede ejecutar esto");
+        require(admins[msg.sender], "Solo la Universidad puede ejecutar esto");
         _;
+    }
+
+    /**
+     * @dev Añade un nuevo administrador (Solo Admin actual).
+     */
+    function addAdmin(address _newAdmin) public onlyAdmin {
+        require(_newAdmin != address(0), "Direccion invalida");
+        admins[_newAdmin] = true;
+        emit AdminAdded(_newAdmin);
+    }
+
+    /**
+     * @dev Elimina un administrador (Solo Admin actual).
+     */
+    function removeAdmin(address _admin) public onlyAdmin {
+        require(_admin != msg.sender, "No puedes eliminarte a ti mismo");
+        admins[_admin] = false;
+        emit AdminRemoved(_admin);
     }
 
     // --- FUNCIONES DEL SISTEMA DE MÉRITO Y CRÉDITO ---
@@ -117,14 +137,6 @@ contract UTPay {
         }
 
         emit LoanPaid(email, debt);
-    }
-
-    /**
-     * @dev Cambia el administrador del contrato.
-     */
-    function transferOwnership(address _newAdmin) public onlyAdmin {
-        require(_newAdmin != address(0), "Nuevo admin no puede ser direccion cero");
-        admin = _newAdmin;
     }
 
     /**

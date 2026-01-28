@@ -283,13 +283,10 @@ export default function UserManagement() {
   );
 
   return (
-    <View 
-      className="flex-1 bg-gray-50 dark:bg-gray-900"
-      style={{ paddingTop: insets.top }}
-    >
-      <View className={`flex-1 px-6 w-full self-center ${isDesktop ? 'max-w-5xl' : ''}`}>
-        {/* Header */}
-        <View className="flex-row items-center py-6">
+    <View className="flex-1 px-6">
+      {/* Header */}
+      <View className="flex-row items-center justify-between py-6">
+        <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.replace('/admin')}
             className="p-2 mr-4 bg-white rounded-full shadow-sm dark:bg-gray-800"
@@ -302,39 +299,50 @@ export default function UserManagement() {
           </View>
         </View>
 
-        {/* Search Bar */}
-        <View className="flex-row items-center px-4 py-3 mb-6 bg-white rounded-2xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
-          <IconSymbol name="magnifyingglass" size={20} color="#9ca3af" />
-          <TextInput
-            placeholder="Buscar por nombre, correo o wallet..."
-            placeholderTextColor="#9ca3af"
-            className="flex-1 ml-3 text-gray-900 dark:text-white"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-
-        {loading ? (
-          <View className="flex-1 justify-center items-center">
-            <ActivityIndicator size="large" color="#9333ea" />
-          </View>
-        ) : (
-          <FlatList
-            data={filteredUsers}
-            renderItem={renderUserItem}
-            keyExtractor={item => item.id.toString()}
-            contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View className="items-center mt-10">
-                <Text className="text-gray-500">No se encontraron usuarios</Text>
-              </View>
-            }
-          />
-        )}
+        <TouchableOpacity 
+          onPress={fetchUsers}
+          disabled={loading}
+          className="p-3 bg-white rounded-2xl shadow-sm dark:bg-gray-800"
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#9333ea" />
+          ) : (
+            <IconSymbol name="arrow.clockwise" size={20} color="#9333ea" />
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* Edit Wallet Modal */}
+      {/* Search Bar */}
+      <View className="flex-row items-center px-4 py-3 mb-6 bg-white rounded-2xl border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
+        <IconSymbol name="magnifyingglass" size={20} color="#9ca3af" />
+        <TextInput
+          placeholder="Buscar por nombre, correo o wallet..."
+          placeholderTextColor="#9ca3af"
+          className="flex-1 ml-3 text-gray-900 dark:text-white"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+      </View>
+
+      {loading ? (
+        <View className="flex-1 justify-center items-center">
+          <ActivityIndicator size="large" color="#9333ea" />
+        </View>
+      ) : (
+        <FlatList
+          data={filteredUsers}
+          renderItem={renderUserItem}
+          keyExtractor={item => item.id.toString()}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View className="items-center mt-10">
+              <Text className="text-gray-500">No se encontraron usuarios</Text>
+            </View>
+          }
+        />
+      )}
+
       <Modal
         visible={isModalVisible}
         transparent
@@ -387,7 +395,6 @@ export default function UserManagement() {
         </View>
       </Modal>
 
-      {/* Mint (Top-up) Modal */}
       <Modal
         visible={isMintModalVisible}
         transparent
@@ -449,7 +456,6 @@ export default function UserManagement() {
         </View>
       </Modal>
 
-      {/* Burn (Withdraw) Modal */}
       <Modal
         visible={isBurnModalVisible}
         transparent

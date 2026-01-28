@@ -19,6 +19,9 @@ export const CONTRACT_ABI = [
     "function creditScore(string memory) public view returns (uint256)",
     "function activeLoans(string memory) public view returns (uint256)",
     "function loanFund() public view returns (uint256)",
+    "function addAdmin(address _newAdmin) public",
+    "function removeAdmin(address _admin) public",
+    "function admins(address) public view returns (bool)",
     "event Transfer(string fromEmail, string toEmail, uint256 amount, string metadata)",
     "event WalletUpdated(string email, address oldWallet, address newWallet)",
     "event StudentRegistered(string email, address wallet)",
@@ -26,16 +29,19 @@ export const CONTRACT_ABI = [
     "event Burn(string email, uint256 amount)"
 ];
 
-// Configuración de la red Besu local
-const LOCAL_RPC_URL = 'http://127.0.0.1:8545'; 
-const ADMIN_PRIVATE_KEY = '0x0607f9d43e7d6637dcdf77c18b471f65d55165d79756750f23a8512691b1d981';
+// Configuración de la red Besu
+const ADMIN_PRIVATE_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
 
 const providerCache: Record<string, ethers.JsonRpcProvider> = {};
 
 export const getContract = (rpcUrl?: string) => {
-    const url = rpcUrl || 'https://portraits-decreased-zen-authentication.trycloudflare.com';
+    if (!rpcUrl) {
+        throw new Error('RPC_URL is required but was not provided to getContract');
+    }
+    const url = rpcUrl;
     
     if (!providerCache[url]) {
+        console.log(`[Blockchain] Creating NEW provider for URL: ${url}`);
         providerCache[url] = new ethers.JsonRpcProvider(url, undefined, {
             staticNetwork: true,
             batchMaxCount: 1
@@ -47,7 +53,10 @@ export const getContract = (rpcUrl?: string) => {
 };
 
 export const getReadOnlyContract = (rpcUrl?: string) => {
-    const url = rpcUrl || 'https://portraits-decreased-zen-authentication.trycloudflare.com';
+    if (!rpcUrl) {
+        throw new Error('RPC_URL is required but was not provided to getReadOnlyContract');
+    }
+    const url = rpcUrl;
     console.log(`[Blockchain] getReadOnlyContract - URL: ${url}`);
         
     const provider = new ethers.JsonRpcProvider(url, undefined, {

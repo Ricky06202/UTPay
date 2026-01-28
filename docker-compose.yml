@@ -2,12 +2,14 @@ services:
   node1:
     image: hyperledger/besu:latest
     container_name: utpay-node-1
+    # Nodo Transaccional (Bonsai Mode)
     volumes:
       - ./blockchain/networkFiles/keys/0x0bc25147c3593b8dd7c873d0a74596754226c963:/var/lib/besu/key
       - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
     command:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
+      - --data-storage-format=BONSAI
       - --rpc-http-enabled
       - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"
@@ -32,12 +34,14 @@ services:
   node2:
     image: hyperledger/besu:latest
     container_name: utpay-node-2
+    # Nodo Transaccional (Bonsai Mode)
     volumes:
       - ./blockchain/networkFiles/keys/0x4305f946854e03ed3cd92a27bb0a4b75df5e3cd4:/var/lib/besu/key
       - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
     command:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
+      - --data-storage-format=BONSAI
       - --rpc-http-enabled
       - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"
@@ -56,12 +60,14 @@ services:
   node3:
     image: hyperledger/besu:latest
     container_name: utpay-node-3
+    # Nodo Transaccional (Bonsai Mode)
     volumes:
       - ./blockchain/networkFiles/keys/0x967914c00ac8a93727acd35bf73d037800d15ecf:/var/lib/besu/key
       - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
     command:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
+      - --data-storage-format=BONSAI
       - --rpc-http-enabled
       - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"
@@ -80,12 +86,14 @@ services:
   node4:
     image: hyperledger/besu:latest
     container_name: utpay-node-4
+    # Nodo Histórico (Archive Node / Forest Mode)
     volumes:
       - ./blockchain/networkFiles/keys/0x57898f715d90bf0c992c0dfa74d6e157b9819bed:/var/lib/besu/key
       - ./blockchain/networkFiles/genesis.json:/etc/besu/genesis.json
     command:
       - --genesis-file=/etc/besu/genesis.json
       - --node-private-key-file=/var/lib/besu/key/key
+      - --data-storage-format=FOREST
       - --rpc-http-enabled
       - --rpc-http-api=ETH,NET,IBFT,WEB3,DEBUG,TRACE,TXPOOL,MINER
       - --host-allowlist="*"

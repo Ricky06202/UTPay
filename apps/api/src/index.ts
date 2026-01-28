@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { and, desc, eq, or, sql } from 'drizzle-orm'
-import { formatEther, parseUnits, Wallet } from 'ethers'
+import { formatUnits, parseUnits, Wallet } from 'ethers'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { SignJWT } from 'jose'
@@ -29,8 +29,8 @@ app.get('/admin/stats', async (c) => {
     const db = createDb(c.env.DB)
     console.log('--- Admin Stats Request ---')
     
-    // 1. Usuarios Totales
-    const usersList = await db.select().from(users).all()
+    // 1. Usuarios Totales (Excluyendo administradores)
+    const usersList = await db.select().from(users).where(or(eq(users.role, 'student'), eq(users.role, 'cafeteria'), sql`${users.role} IS NULL`)).all()
     const totalUsers = usersList.length
     
     // 2. Transacciones
@@ -108,7 +108,12 @@ app.post('/auth/register', async (c) => {
 
     // 4. Registrar en el Smart Contract (Abstracción de Identidad)
     try {
-      const contract = getContract(c.env.RPC_URL)
+      const rpcUrl = c.env.RPC_URL;
+    if (!rpcUrl) {
+      throw new Error('RPC_URL environment variable is missing');
+    }
+
+    const contract = getContract(rpcUrl)
       const tx = await contract.registerStudent(email, wallet.address)
       await tx.wait()
       console.log(`Estudiante ${email} registrado en blockchain con wallet ${wallet.address}`)
@@ -161,7 +166,29 @@ app.post('/auth/login', async (c) => {
       currentWalletAddress = walletAddress;
     }
 
-    // 3. Generar JWT
+    // 3. Auto-autorización de Admins en Blockchain si es necesario
+    if (user.role === 'admin' && currentWalletAddress) {
+      const rpcUrl = c.env.RPC_URL
+      if (rpcUrl) {
+        c.executionCtx.waitUntil((async () => {
+          try {
+            const contract = getContract(rpcUrl)
+            const isAlreadyAdmin = await contract.admins(currentWalletAddress)
+            
+            if (!isAlreadyAdmin) {
+              console.log(`[Auth-Admin] Autorizando nuevo admin ${email} (${currentWalletAddress}) en blockchain...`)
+              const tx = await contract.addAdmin(currentWalletAddress)
+              await tx.wait()
+              console.log(`[Auth-Admin] Admin ${email} autorizado con éxito. Hash: ${tx.hash}`)
+            }
+          } catch (error: any) {
+            console.error(`[Auth-Admin-Error] No se pudo autorizar al admin ${email}:`, error.message)
+          }
+        })())
+      }
+    }
+
+    // 4. Generar JWT
     const secret = new TextEncoder().encode(c.env.JWT_SECRET || 'utpay-secret-key-123')
     const token = await new SignJWT({ id: user.id, email: user.email })
       .setProtectedHeader({ alg: 'HS256' })
@@ -215,21 +242,20 @@ app.post('/auth/sync-wallet', async (c) => {
     
     // 3. Registrar en Blockchain en SEGUNDO PLANO (sin bloquear la respuesta)
     const rpcUrl = c.env.RPC_URL
-    if (rpcUrl) {
+    if (!rpcUrl) {
+      console.warn(`[Sync-Warning] RPC_URL no configurada. Saltando registro en blockchain para ${email}`)
+    } else {
       c.executionCtx.waitUntil((async () => {
         try {
           const contract = getContract(rpcUrl)
           console.log(`[Sync-BG] Intentando registrar ${email} en blockchain...`)
-          
-          // Verificar si ya está registrado para no enviar transacción innecesaria
-          // (Opcional, pero ahorra gas/tiempo)
           
           const tx = await contract.registerStudent(email, walletAddress)
           console.log(`[Sync-BG] Transacción de registro enviada: ${tx.hash}`)
           await tx.wait()
           console.log(`[Sync-BG] Estudiante ${email} registrado con éxito`)
         } catch (blockchainError: any) {
-          console.log(`[Sync-BG] Registro en blockchain saltado o fallido: ${blockchainError.message}`)
+          console.error(`[Sync-BG] Error en registro blockchain: ${blockchainError.message}`)
         }
       })())
     }
@@ -362,7 +388,9 @@ app.post('/users/update-merit', async (c) => {
 
     // 3. Sincronizar con Blockchain (Credit Score)
     const rpcUrl = c.env.RPC_URL
-    if (rpcUrl) {
+    if (!rpcUrl) {
+      console.warn(`[Merit-Warning] RPC_URL no configurada. Saltando actualización de mérito para ${email}`)
+    } else {
       c.executionCtx.waitUntil((async () => {
         try {
           const contract = getContract(rpcUrl)
@@ -599,13 +627,15 @@ app.post('/internal/confirm-transaction', async (c) => {
     // SIEMPRE sincronizamos el balance real desde la Blockchain tras una confirmación
     // para evitar inconsistencias por transacciones duplicadas o errores de cálculo local
     const rpcUrl = c.env.RPC_URL;
-    if (rpcUrl) {
+    if (!rpcUrl) {
+      console.warn('[Internal-Warning] RPC_URL no configurada. Saltando sincronización de balances reales.')
+    } else {
       const contract = getReadOnlyContract(rpcUrl);
       
       if (fromEmail && fromEmail !== 'SISTEMA') {
         try {
           const balance = await contract.getBalance(fromEmail);
-          await db.update(users).set({ balance: Number(formatEther(balance)) }).where(eq(users.email, fromEmail)).run();
+          await db.update(users).set({ balance: Number(formatUnits(balance, 2)) }).where(eq(users.email, fromEmail)).run();
           console.log(`Balance actualizado (Blockchain) para ${fromEmail}`);
         } catch (e) {
           console.error(`Error actualizando balance de ${fromEmail}:`, e);
@@ -615,7 +645,7 @@ app.post('/internal/confirm-transaction', async (c) => {
       if (toEmail && toEmail !== 'SISTEMA') {
         try {
           const balance = await contract.getBalance(toEmail);
-          await db.update(users).set({ balance: Number(formatEther(balance)) }).where(eq(users.email, toEmail)).run();
+          await db.update(users).set({ balance: Number(formatUnits(balance, 2)) }).where(eq(users.email, toEmail)).run();
           console.log(`Balance actualizado (Blockchain) para ${toEmail}`);
         } catch (e) {
           console.error(`Error actualizando balance de ${toEmail}:`, e);
@@ -639,7 +669,7 @@ app.post('/internal/sync-user-balance', async (c) => {
 
     const contract = getReadOnlyContract(rpcUrl)
     const balance = await contract.getBalance(email)
-    const balanceFormatted = Number(formatEther(balance))
+    const balanceFormatted = Number(formatUnits(balance, 2))
 
     const db = createDb(c.env.DB)
     await db.update(users)
@@ -686,7 +716,7 @@ app.get('/users', async (c) => {
         const balance = await contract.getBalance(u.email);
         return { 
           ...u, 
-          balance: formatEther(balance) 
+          balance: formatUnits(balance, 2) 
         };
       } catch (err) {
         console.error(`Error obteniendo saldo para ${u.email}:`, err);
@@ -784,7 +814,7 @@ app.post('/admin/mint', async (c) => {
     try {
       console.log(`Preparando transacción de mint para ${amount} UTP a ${email}...`);
       // En ethers v6, parseUnits está directamente en ethers o se importa
-      const amountInUnits = parseUnits(amount.toString(), 18);
+      const amountInUnits = parseUnits(amount.toString(), 2);
       
       // Intentar enviar la transacción directamente
       const tx = await contract.mint(email, amountInUnits, { gasPrice: 0 })
@@ -841,7 +871,7 @@ app.post('/admin/mint', async (c) => {
           await regTx.wait();
           console.log('Registro exitoso. Enviando mint...');
           
-          const amountInUnits = parseUnits(amount.toString(), 18);
+          const amountInUnits = parseUnits(amount.toString(), 2);
           const retryTx = await contract.mint(email, amountInUnits, { gasPrice: 0 });
           
           // El segundo mint lo enviamos y respondemos rápido también
@@ -902,7 +932,7 @@ app.post('/admin/burn', async (c) => {
     if (!rpcUrl) return c.json({ success: false, message: 'Falta RPC_URL' }, 500);
 
     const contract = getContract(rpcUrl)
-    const amountInUnits = parseUnits(amount.toString(), 18);
+    const amountInUnits = parseUnits(amount.toString(), 2);
     
     try {
       console.log(`Eliminando ${amount} UTP de ${email}...`);
@@ -955,7 +985,12 @@ app.post('/admin/update-wallet', async (c) => {
       }
     }
 
-    const contract = getContract(c.env.RPC_URL)
+    const rpcUrl = c.env.RPC_URL;
+    if (!rpcUrl) {
+      throw new Error('RPC_URL environment variable is missing');
+    }
+
+    const contract = getContract(rpcUrl)
     
     console.log(`Admin: Actualizando wallet de ${email} a ${newWallet}...`)
     
@@ -1465,7 +1500,7 @@ async function runIndexer(env: Bindings) {
         const [fromEmail, toEmail, amount, metadata] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`✨ Sincronizando Transferencia: ${fromEmail} -> ${toEmail} (${formatEther(amount)} UTP)`);
+        console.log(`✨ Sincronizando Transferencia: ${fromEmail} -> ${toEmail} (${formatUnits(amount, 2)} UTP)`);
 
         // Evitar duplicados
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
@@ -1479,7 +1514,7 @@ async function runIndexer(env: Bindings) {
             receiverId: receiver?.id || null,
             senderEmail: fromEmail,
             receiverEmail: toEmail,
-            amount: Number(formatEther(amount)),
+            amount: Number(formatUnits(amount, 2)),
             description: metadata || '',
             status: 'success'
           }).run();
@@ -1488,11 +1523,11 @@ async function runIndexer(env: Bindings) {
         // Sincronizar balances de los involucrados
         if (fromEmail && fromEmail !== 'SISTEMA') {
           const bal = await contractReader.getBalance(fromEmail);
-          await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, fromEmail)).run();
+          await db.update(users).set({ balance: Number(formatUnits(bal, 2)) }).where(eq(users.email, fromEmail)).run();
         }
         if (toEmail && toEmail !== 'SISTEMA') {
           const bal = await contractReader.getBalance(toEmail);
-          await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, toEmail)).run();
+          await db.update(users).set({ balance: Number(formatUnits(bal, 2)) }).where(eq(users.email, toEmail)).run();
         }
       }
     }
@@ -1508,7 +1543,7 @@ async function runIndexer(env: Bindings) {
         const [email, amount] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`✨ Sincronizando Mint: ${email} (+${formatEther(amount)} UTP)`);
+        console.log(`✨ Sincronizando Mint: ${email} (+${formatUnits(amount, 2)} UTP)`);
 
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
         if (!existing) {
@@ -1520,7 +1555,7 @@ async function runIndexer(env: Bindings) {
             receiverId: receiver?.id || null,
             senderEmail: 'SISTEMA',
             receiverEmail: email,
-            amount: Number(formatEther(amount)),
+            amount: Number(formatUnits(amount, 2)),
             description: 'Carga de saldo por Admin',
             status: 'success'
           }).run();
@@ -1528,7 +1563,7 @@ async function runIndexer(env: Bindings) {
 
         // Sincronizar balance del receptor
         const bal = await contractReader.getBalance(email);
-        await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, email)).run();
+        await db.update(users).set({ balance: Number(formatUnits(bal, 2)) }).where(eq(users.email, email)).run();
       }
     }
 
@@ -1543,7 +1578,7 @@ async function runIndexer(env: Bindings) {
         const [email, amount] = event.args;
         const txHash = event.transactionHash;
 
-        console.log(`✨ Sincronizando Burn: ${email} (-${formatEther(amount)} UTP)`);
+        console.log(`✨ Sincronizando Burn: ${email} (-${formatUnits(amount, 2)} UTP)`);
 
         const existing = await db.select().from(transactions).where(eq(transactions.txHash, txHash)).get();
         if (!existing) {
@@ -1555,7 +1590,7 @@ async function runIndexer(env: Bindings) {
             receiverId: null,
             senderEmail: email,
             receiverEmail: 'SISTEMA',
-            amount: Number(formatEther(amount)),
+            amount: Number(formatUnits(amount, 2)),
             description: 'Retiro de saldo por Admin',
             status: 'success'
           }).run();
@@ -1563,7 +1598,7 @@ async function runIndexer(env: Bindings) {
 
         // Sincronizar balance del emisor
         const bal = await contractReader.getBalance(email);
-        await db.update(users).set({ balance: Number(formatEther(bal)) }).where(eq(users.email, email)).run();
+        await db.update(users).set({ balance: Number(formatUnits(bal, 2)) }).where(eq(users.email, email)).run();
       }
     }
 

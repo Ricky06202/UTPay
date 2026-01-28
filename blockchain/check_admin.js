@@ -1,7 +1,7 @@
 const { ethers } = require('ethers');
 
 const RPC_URL = 'http://localhost:8545';
-const PRIVATE_KEY = '0x0607f9d43e7d6637dcdf77c18b471f65d55165d79756750f23a8512691b1d981';
+const PRIVATE_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
 
 async function main() {
     const provider = new ethers.providers.JsonRpcProvider(RPC_URL);

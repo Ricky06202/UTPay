@@ -20,7 +20,8 @@ const isWeb = Platform.OS === 'web';
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
-  const isDesktop = width >= 768;
+  const [mounted, setMounted] = useState(false);
+  const isDesktop = mounted && width >= 768;
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [backendStatus, setBackendStatus] = useState<'loading' | 'ok' | 'error'>('loading');
@@ -78,6 +79,7 @@ export default function HomeScreen() {
   };
 
   useEffect(() => {
+    setMounted(true);
     checkBackend();
     if (user) {
       fetchHistory();

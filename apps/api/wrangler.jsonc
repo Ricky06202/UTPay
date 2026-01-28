@@ -10,7 +10,7 @@
     }
   ],
   "vars": {
-    "RPC_URL": "https://portraits-decreased-zen-authentication.trycloudflare.com"
+    "RPC_URL": "https://newark-beyond-profiles-calgary.trycloudflare.com"
   },
   "triggers": {
     "crons": ["* * * * *"]

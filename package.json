@@ -20,7 +20,7 @@
     "besu:logs": "docker-compose logs -f",
     "contract:compile": "cd blockchain && npm run compile",
     "contract:deploy": "cd blockchain && npm run deploy",
-    "blockchain:reset": "npm run besu:down && npm run besu:up && npm run contract:compile && npm run contract:deploy"
+    "blockchain:reset": "npm run besu:down && npm run besu:up && npm run contract:compile"
 
   }
 }
