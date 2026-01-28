@@ -1049,11 +1049,24 @@ app.post('/missions/create', async (c) => {
     // Redondear a 2 decimales
     const finalReward = Math.round(reward * 100) / 100
 
-    // NOTA: El saldo ahora se maneja 100% en la blockchain.
-    // El frontend debe validar el saldo antes de llamar a este endpoint si quiere
-    // que el servidor lleve un registro de misiones.
-    // Por ahora, permitimos la creación de la misión para no bloquear el flujo,
-    // pero en producción se debería validar contra la blockchain aquí también.
+    // 1. Obtener email del creador para el burn
+    const creator = await db.select().from(users).where(eq(users.id, creatorId)).get()
+    if (!creator) return c.json({ success: false, message: 'Creador no encontrado' }, 404)
+
+    // 2. Ejecutar Burn en Blockchain (Escrow)
+    const rpcUrl = c.env.RPC_URL
+    if (rpcUrl) {
+      try {
+        const contract = getContract(rpcUrl)
+        console.log(`[Missions-Create] Burning ${finalReward} from ${creator.email} (Escrow)...`)
+        const tx = await contract.burn(creator.email, Math.round(finalReward))
+        await tx.wait()
+        console.log(`[Missions-Create] Burn exitoso: ${tx.hash}`)
+      } catch (err: any) {
+        console.error('[Missions-Create-Error] Falló burn blockchain:', err.message)
+        return c.json({ success: false, message: 'Error al procesar pago en blockchain (Escrow): ' + err.message }, 500)
+      }
+    }
     
     await db.insert(missions).values({
       creatorId,
@@ -1095,6 +1108,9 @@ app.get('/missions/open', async (c) => {
         : sql<number>`0`,
       myBid: userId 
         ? sql<number>`(SELECT bid_amount FROM ${missionApplications} WHERE mission_id = ${missions.id} AND student_id = ${userId} LIMIT 1)`
+        : sql`NULL`,
+      myApplicationStatus: userId 
+        ? sql<string>`(SELECT status FROM ${missionApplications} WHERE mission_id = ${missions.id} AND student_id = ${userId} LIMIT 1)`
         : sql`NULL`
     })
     .from(missions)
@@ -1278,8 +1294,30 @@ app.post('/missions/accept', async (c) => {
     const creator = await db.select().from(users).where(eq(users.id, mission.creatorId)).get()
     if (!creator) return c.json({ success: false, message: 'Creador no encontrado' }, 404)
 
-    // NOTA: El saldo ahora se maneja 100% en la blockchain.
-    // El frontend debe validar el saldo antes de llamar a este endpoint.
+    // 1. Ajustar saldo en Blockchain si el bid es diferente a la recompensa original
+    const rpcUrl = c.env.RPC_URL
+    if (rpcUrl && application.bidAmount !== mission.reward) {
+      try {
+        const contract = getContract(rpcUrl)
+        const diff = Math.abs(application.bidAmount - mission.reward)
+        const diffRounded = Math.round(diff)
+        
+        if (application.bidAmount > mission.reward) {
+          // El estudiante pidió más, quemamos la diferencia al creador
+          console.log(`[Missions-Accept] Burning extra ${diffRounded} from ${creator.email}...`)
+          const tx = await contract.burn(creator.email, diffRounded)
+          await tx.wait()
+        } else {
+          // El estudiante pidió menos, devolvemos la diferencia al creador
+          console.log(`[Missions-Accept] Minting back ${diffRounded} to ${creator.email}...`)
+          const tx = await contract.mint(creator.email, diffRounded)
+          await tx.wait()
+        }
+      } catch (err: any) {
+        console.error('[Missions-Accept-Error] Falló ajuste blockchain:', err.message)
+        return c.json({ success: false, message: 'Error al ajustar saldo en blockchain: ' + err.message }, 500)
+      }
+    }
     
     await db.batch([
       // Marcar postulación como aceptada
@@ -1337,7 +1375,45 @@ app.post('/missions/cancel', async (c) => {
       return c.json({ success: false, message: 'No tienes permiso para cancelar esta tarea' }, 403);
     }
 
-    // Permitir eliminar cualquier tarea del dueño
+    // Si tiene postulantes o está en curso/completada, no borrar, solo cambiar estado
+    const applicationsCount = await db.select({ count: sql<number>`count(*)` })
+      .from(missionApplications)
+      .where(eq(missionApplications.missionId, mId))
+      .get();
+
+    const hasInteractions = (applicationsCount?.count || 0) > 0 || mission.status !== 'open';
+
+    // 1. Reembolsar en Blockchain (siempre que se cancele una tarea que estaba abierta o asignada)
+    const rpcUrl = c.env.RPC_URL
+    if (rpcUrl && (mission.status === 'open' || mission.status === 'assigned')) {
+      try {
+        const creator = await db.select().from(users).where(eq(users.id, uId)).get()
+        if (creator) {
+          const contract = getContract(rpcUrl)
+          console.log(`[Missions-Cancel] Minting back ${mission.reward} to ${creator.email} (Refund)...`)
+          const tx = await contract.mint(creator.email, Math.round(mission.reward))
+          await tx.wait()
+          console.log(`[Missions-Cancel] Reembolso exitoso: ${tx.hash}`)
+        }
+      } catch (err: any) {
+        console.error('[Missions-Cancel-Error] Falló reembolso blockchain:', err.message)
+        // No bloqueamos la cancelación local si falla el reembolso, 
+        // pero idealmente se debería manejar mejor
+      }
+    }
+
+    if (hasInteractions) {
+      await db.update(missions)
+        .set({ status: 'cancelled' })
+        .where(eq(missions.id, mId));
+      
+      return c.json({ 
+        success: true, 
+        message: 'Tarea cancelada y mantenida en el historial por tener interacciones' 
+      });
+    }
+
+    // Si no tiene interacciones, eliminar permanentemente
     const operations: any[] = [
       db.delete(missionApplications).where(eq(missionApplications.missionId, mId)),
       db.delete(missions).where(eq(missions.id, mId))
@@ -1347,10 +1423,43 @@ app.post('/missions/cancel', async (c) => {
 
     return c.json({ 
       success: true, 
-      message: 'Tarea eliminada del historial' 
+      message: 'Tarea eliminada permanentemente' 
     });
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500);
+  }
+})
+
+// 5.5. Marcar tarea como terminada (por el estudiante asignado)
+app.post('/missions/finish', async (c) => {
+  try {
+    const { missionId, studentId } = await c.req.json()
+    const db = createDb(c.env.DB)
+
+    const mission = await db.select().from(missions).where(eq(missions.id, missionId)).get()
+    if (!mission) return c.json({ success: false, message: 'Tarea no encontrada' }, 404)
+
+    if (mission.status !== 'assigned') {
+      return c.json({ success: false, message: 'La tarea no está en curso' }, 400)
+    }
+
+    const application = await db.select().from(missionApplications)
+      .where(and(
+        eq(missionApplications.missionId, missionId),
+        eq(missionApplications.studentId, studentId),
+        eq(missionApplications.status, 'accepted')
+      ))
+      .get()
+
+    if (!application) return c.json({ success: false, message: 'No eres el estudiante asignado a esta tarea' }, 403)
+
+    await db.update(missionApplications)
+      .set({ status: 'finished' })
+      .where(eq(missionApplications.id, application.id))
+
+    return c.json({ success: true, message: 'Has marcado la tarea como terminada. Espera a que el dueño confirme.' })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
   }
 })
 
@@ -1389,8 +1498,33 @@ app.post('/missions/update', async (c) => {
     const finalReward = Math.round(rewardNum * 100) / 100
 
     if (finalReward !== mission.reward) {
-      // NOTA: El saldo ahora se maneja 100% en la blockchain.
-      // En una versión futura, esto debería requerir una transacción on-chain.
+      // 1. Ajustar saldo en Blockchain por cambio de recompensa
+      const rpcUrl = c.env.RPC_URL
+      if (rpcUrl) {
+        try {
+          const creator = await db.select().from(users).where(eq(users.id, uId)).get()
+          if (creator) {
+            const contract = getContract(rpcUrl)
+            const diff = Math.abs(finalReward - mission.reward)
+            const diffRounded = Math.round(diff)
+            
+            if (finalReward > mission.reward) {
+              // Aumentó la recompensa, quemamos la diferencia al creador
+              console.log(`[Missions-Update] Burning extra ${diffRounded} from ${creator.email}...`)
+              const tx = await contract.burn(creator.email, diffRounded)
+              await tx.wait()
+            } else {
+              // Disminuyó la recompensa, devolvemos la diferencia al creador
+              console.log(`[Missions-Update] Minting back ${diffRounded} to ${creator.email}...`)
+              const tx = await contract.mint(creator.email, diffRounded)
+              await tx.wait()
+            }
+          }
+        } catch (err: any) {
+          console.error('[Missions-Update-Error] Falló ajuste blockchain:', err.message)
+          return c.json({ success: false, message: 'Error al ajustar saldo en blockchain: ' + err.message }, 500)
+        }
+      }
     }
 
     await db.update(missions).set({
@@ -1413,12 +1547,15 @@ app.post('/missions/complete', async (c) => {
     const { applicationId } = await c.req.json()
     const db = createDb(c.env.DB)
 
-    // Buscar la postulación aceptada
+    // Buscar la postulación aceptada o terminada
     const application = await db.select().from(missionApplications)
-      .where(and(eq(missionApplications.id, applicationId), eq(missionApplications.status, 'accepted')))
+      .where(and(
+        eq(missionApplications.id, applicationId), 
+        or(eq(missionApplications.status, 'accepted'), eq(missionApplications.status, 'finished'))
+      ))
       .get()
 
-    if (!application) return c.json({ success: false, message: 'Postulación aceptada no encontrada' }, 404)
+    if (!application) return c.json({ success: false, message: 'Postulación aceptada o terminada no encontrada' }, 404)
 
     const mission = await db.select().from(missions).where(eq(missions.id, application.missionId)).get()
     if (!mission) return c.json({ success: false, message: 'Tarea no encontrada' }, 404)
@@ -1426,15 +1563,119 @@ app.post('/missions/complete', async (c) => {
     const student = await db.select().from(users).where(eq(users.id, application.studentId)).get()
     if (!student) return c.json({ success: false, message: 'Estudiante no encontrado' }, 404)
 
+    // 1. Liberar pago en Blockchain (Mint al estudiante)
+    const rpcUrl = c.env.RPC_URL
+    if (rpcUrl) {
+      try {
+        const contract = getContract(rpcUrl)
+        console.log(`[Missions-Complete] Minting ${mission.reward} to ${student.email} (Payout)...`)
+        const tx = await contract.mint(student.email, Math.round(mission.reward))
+        await tx.wait()
+        console.log(`[Missions-Complete] Pago exitoso: ${tx.hash}`)
+
+        // Registrar la transacción en el historial local
+        await db.insert(transactions).values({
+          txHash: tx.hash,
+          senderEmail: 'SISTEMA_TAREAS@utp.ac.pa',
+          receiverEmail: student.email,
+          receiverId: student.id,
+          amount: mission.reward,
+          description: `Pago por tarea: ${mission.title}`,
+          status: 'success'
+        })
+      } catch (err: any) {
+        console.error('[Missions-Complete-Error] Falló pago blockchain:', err.message)
+        return c.json({ success: false, message: 'Error al liberar pago en blockchain: ' + err.message }, 500)
+      }
+    }
+
     await db.batch([
       // Marcar postulación como completada
       db.update(missionApplications).set({ status: 'completed' }).where(eq(missionApplications.id, applicationId)),
       // Marcar tarea como completada
-      db.update(missions).set({ status: 'completed' }).where(eq(missions.id, mission.id))
-      // El pago real debe ser procesado por el cliente mediante una transacción Blockchain
+      db.update(missions).set({ status: 'completed' }).where(eq(missions.id, mission.id)),
+      // Aumentar honor del estudiante (+0.1 por tarea completada)
+      db.update(users)
+        .set({ 
+          statHonor: sql`MIN(5.0, ${users.statHonor} + 0.1)`,
+          creditScore: sql`MIN(100, ${users.creditScore} + 1)`
+        })
+        .where(eq(users.id, student.id)),
+      // Aumentar honor del creador por usar el sistema (+0.05)
+      db.update(users)
+        .set({ 
+          statHonor: sql`MIN(5.0, ${users.statHonor} + 0.05)`,
+          creditScore: sql`MIN(100, ${users.creditScore} + 1)`
+        })
+        .where(eq(users.id, mission.creatorId))
     ])
 
     return c.json({ success: true, message: 'Trabajo completado y pago liberado' })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// 8. Crear reseña para una tarea
+app.post('/missions/review', async (c) => {
+  try {
+    const { missionId, reviewerId, revieweeId, rating, comment, role } = await c.req.json()
+    const db = createDb(c.env.DB)
+
+    // Validar que la tarea esté completada
+    const mission = await db.select().from(missions).where(eq(missions.id, missionId)).get()
+    if (!mission || mission.status !== 'completed') {
+      return c.json({ success: false, message: 'Solo se pueden reseñar tareas completadas' }, 400)
+    }
+
+    // Insertar reseña
+    await db.insert(missionReviews).values({
+      missionId,
+      reviewerId,
+      revieweeId,
+      rating,
+      comment,
+      role
+    })
+
+    // Actualizar statHonor del reseñado
+    // Si la calificación es > 3, aumenta honor, si es < 3 disminuye
+    const honorChange = (rating - 3) * 0.05
+    await db.update(users)
+      .set({ 
+        statHonor: sql`MAX(0, MIN(5.0, ${users.statHonor} + ${honorChange}))`
+      })
+      .where(eq(users.id, revieweeId))
+
+    return c.json({ success: true, message: 'Reseña enviada correctamente' })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+// 8.1. Obtener reseñas de un usuario
+app.get('/users/reviews/:userId', async (c) => {
+  try {
+    const userId = parseInt(c.req.param('userId'))
+    const db = createDb(c.env.DB)
+    
+    const reviews = await db.select({
+      id: missionReviews.id,
+      rating: missionReviews.rating,
+      comment: missionReviews.comment,
+      role: missionReviews.role,
+      createdAt: missionReviews.createdAt,
+      reviewerName: users.name,
+      missionTitle: missions.title
+    })
+    .from(missionReviews)
+    .innerJoin(users, eq(missionReviews.reviewerId, users.id))
+    .innerJoin(missions, eq(missionReviews.missionId, missions.id))
+    .where(eq(missionReviews.revieweeId, userId))
+    .orderBy(desc(missionReviews.createdAt))
+    .all()
+
+    return c.json({ success: true, reviews })
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 500)
   }

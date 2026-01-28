@@ -46,6 +46,9 @@ export default function MissionsScreen() {
   const [bidAmount, setBidAmount] = useState('');
   const [applyComment, setApplyComment] = useState('');
   const [isApplying, setIsApplying] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'mine' | 'applied' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterCategoryId, setFilterCategoryId] = useState<number | null>(null);
 
   // Alert Modal State
   const [alertConfig, setAlertConfig] = useState<{
@@ -338,6 +341,29 @@ export default function MissionsScreen() {
     );
   };
 
+  const handleFinishTask = async (missionId: number) => {
+    try {
+      const response = await fetch(`${API_URL}/missions/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          missionId, 
+          studentId: user?.id 
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        showAlert('¡Bien hecho!', data.message, 'success');
+        fetchMissions();
+      } else {
+        showAlert('Error', data.message || 'No se pudo marcar como terminada', 'error');
+      }
+    } catch (error) {
+      showAlert('Error', 'Error de conexión', 'error');
+    }
+  };
+
   const handleApply = async () => {
     if (!selectedMissionForApply || !bidAmount) {
       showAlert('Error', 'Por favor ingresa tu oferta', 'error');
@@ -403,6 +429,31 @@ export default function MissionsScreen() {
     setReward('');
     setWhatsapp('');
   };
+
+  const filteredMissions = missions.filter(m => {
+    // Filtro por Tab
+    if (activeTab === 'mine') {
+      if (Number(m.creatorId) !== Number(user?.id)) return false;
+    } else if (activeTab === 'applied') {
+      if (!(m.hasApplied > 0) || Number(m.creatorId) === Number(user?.id)) return false;
+    } else if (activeTab === 'completed') {
+      if (m.status !== 'completed') return false;
+    } else if (activeTab === 'all') {
+      // En "Todas", mostrar abiertas o asignadas (si eres el asignado o el creador)
+      if (m.status === 'completed' || m.status === 'cancelled') return false;
+    }
+
+    // Filtro por Categoría
+    if (filterCategoryId && m.categoryId !== filterCategoryId) return false;
+
+    // Filtro por Búsqueda
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return m.title.toLowerCase().includes(query) || m.description.toLowerCase().includes(query);
+    }
+
+    return true;
+  });
 
   const renderMissionCard = ({ item }: { item: any }) => {
     const isOwner = Number(item.creatorId) === Number(user?.id);
@@ -558,15 +609,94 @@ export default function MissionsScreen() {
           </View>
         </View>
 
-        {isLoading && !isRefreshing ? (
-          <View className="flex-1 justify-center items-center">
-            <ActivityIndicator size="large" color="#2563eb" />
+          <View className="flex-row items-center px-6 mb-4">
+            <View className="flex-1 flex-row items-center px-4 h-12 bg-white rounded-full border border-gray-100 shadow-sm dark:bg-gray-800 dark:border-gray-700">
+              <IconSymbol name="magnifyingglass" size={20} color="#9ca3af" />
+              <TextInput
+                className="flex-1 ml-2 font-medium text-gray-900 dark:text-white"
+                placeholder="Buscar tareas..."
+                placeholderTextColor="#9ca3af"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
           </View>
-        ) : (
-          <FlatList
-            data={missions}
-            renderItem={renderMissionCard}
-            keyExtractor={(item) => item.id.toString()}
+
+          <View className="mb-4">
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 24 }}
+            >
+              {[
+                { id: 'all', label: 'Todas', icon: 'list.bullet' },
+                { id: 'mine', label: 'Mis Tareas', icon: 'person' },
+                { id: 'applied', label: 'Postuladas', icon: 'checkmark.circle' },
+                { id: 'completed', label: 'Completadas', icon: 'archivebox' }
+              ].map((tab) => (
+                <TouchableOpacity
+                  key={tab.id}
+                  onPress={() => setActiveTab(tab.id as any)}
+                  className={`flex-row items-center px-4 py-2 mr-2 rounded-full border ${
+                    activeTab === tab.id 
+                      ? 'bg-purple-600 border-purple-600' 
+                      : 'bg-white border-gray-100 dark:bg-gray-800 dark:border-gray-700'
+                  }`}
+                >
+                  <IconSymbol 
+                    name={tab.icon as any} 
+                    size={16} 
+                    color={activeTab === tab.id ? 'white' : '#6b7280'} 
+                  />
+                  <Text className={`ml-2 font-bold ${activeTab === tab.id ? 'text-white' : 'text-gray-500'}`}>
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          <View className="mb-6">
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 24 }}
+            >
+              <TouchableOpacity
+                onPress={() => setFilterCategoryId(null)}
+                className={`px-4 py-2 mr-2 rounded-xl ${
+                  filterCategoryId === null ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-50 dark:bg-gray-800'
+                }`}
+              >
+                <Text className={`font-bold text-xs ${filterCategoryId === null ? 'text-blue-600' : 'text-gray-500'}`}>
+                  Todas las categorías
+                </Text>
+              </TouchableOpacity>
+              {categories.map((cat) => (
+                <TouchableOpacity
+                  key={cat.id}
+                  onPress={() => setFilterCategoryId(cat.id)}
+                  className={`px-4 py-2 mr-2 rounded-xl ${
+                    filterCategoryId === cat.id ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-50 dark:bg-gray-800'
+                  }`}
+                >
+                  <Text className={`font-bold text-xs ${filterCategoryId === cat.id ? 'text-blue-600' : 'text-gray-500'}`}>
+                    {cat.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {isLoading && !isRefreshing ? (
+            <View className="flex-1 justify-center items-center">
+              <ActivityIndicator size="large" color="#2563eb" />
+            </View>
+          ) : (
+            <FlatList
+              data={filteredMissions}
+              renderItem={renderMissionCard}
+              keyExtractor={(item) => item.id.toString()}
             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 100 }}
             refreshControl={
               <RefreshControl 

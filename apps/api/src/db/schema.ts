@@ -78,6 +78,17 @@ export const missionApplications = sqliteTable("mission_applications", {
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 
+export const missionReviews = sqliteTable("mission_reviews", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  missionId: integer("mission_id").notNull().references(() => missions.id, { onDelete: 'cascade' }),
+  reviewerId: integer("reviewer_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  revieweeId: integer("reviewee_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  rating: integer("rating").notNull(), // 1-5
+  comment: text("comment"),
+  role: text("role").notNull(), // 'owner' (reviewer is owner) or 'resolver' (reviewer is resolver)
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+});
+
 export const contacts = sqliteTable("contacts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),

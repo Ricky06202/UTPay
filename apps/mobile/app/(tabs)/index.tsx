@@ -53,6 +53,11 @@ export default function HomeScreen() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
 
+  // Estados para Historial de Tareas y Reseñas
+  const [userMissions, setUserMissions] = useState<any[]>([]);
+  const [userReviews, setUserReviews] = useState<any[]>([]);
+  const [isLoadingProfileData, setIsLoadingProfileData] = useState(false);
+
   // Feedback Modal State
   const [feedback, setFeedback] = useState<{
     visible: boolean;
@@ -85,6 +90,7 @@ export default function HomeScreen() {
       fetchHistory();
       fetchBlockchainBalance();
       fetchContacts();
+      fetchProfileData();
 
       // Solo mostramos la alerta si NO hay llave Y NO la acabamos de importar
       // Usamos un pequeño delay o verificamos si ya se cerró manualmente
@@ -100,6 +106,7 @@ export default function HomeScreen() {
       if (user) {
         fetchHistory();
         fetchBlockchainBalance();
+        fetchProfileData();
       }
     }, 15000);
 
@@ -118,6 +125,27 @@ export default function HomeScreen() {
       }
     } catch (error) {
       setBackendStatus('error');
+    }
+  };
+
+  const fetchProfileData = async () => {
+    if (!user?.id) return;
+    try {
+      setIsLoadingProfileData(true);
+      const [missionsRes, reviewsRes] = await Promise.all([
+        fetch(`${API_URL}/missions/user/${user.id}`),
+        fetch(`${API_URL}/users/reviews/${user.id}`)
+      ]);
+      
+      const missionsData = await missionsRes.json();
+      const reviewsData = await reviewsRes.json();
+
+      if (missionsData.success) setUserMissions(missionsData.missions);
+      if (reviewsData.success) setUserReviews(reviewsData.reviews);
+    } catch (error) {
+      console.error('Error fetching profile data:', error);
+    } finally {
+      setIsLoadingProfileData(false);
     }
   };
 
@@ -715,6 +743,53 @@ export default function HomeScreen() {
 
               {/* Nueva Sección de Mérito y Crédito (Tesis) */}
               <CreditMeritSection />
+
+          {/* Historial de Tareas y Reseñas */}
+          <View className="mt-8 mb-4">
+            <Text className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Actividad en Tareas</Text>
+            
+            <View className="flex-row mb-6">
+              <View className="flex-1 bg-white dark:bg-gray-800 p-4 rounded-3xl border border-gray-100 dark:border-gray-700 mr-2 shadow-sm">
+                <Text className="text-[10px] font-bold text-gray-400 uppercase mb-1">Tareas Creadas</Text>
+                <Text className="text-2xl font-black text-purple-600">{userMissions.length}</Text>
+              </View>
+              <View className="flex-1 bg-white dark:bg-gray-800 p-4 rounded-3xl border border-gray-100 dark:border-gray-700 ml-2 shadow-sm">
+                <Text className="text-[10px] font-bold text-gray-400 uppercase mb-1">Reseñas</Text>
+                <Text className="text-2xl font-black text-yellow-500">{userReviews.length}</Text>
+              </View>
+            </View>
+
+            {/* Lista de Reseñas */}
+            {userReviews.length > 0 && (
+              <View className="bg-white dark:bg-gray-800 rounded-[32px] p-6 border border-gray-100 dark:border-gray-700 shadow-sm mb-6">
+                <Text className="text-lg font-bold text-gray-900 dark:text-white mb-4">Últimas Reseñas</Text>
+                {userReviews.slice(0, 3).map((review, idx) => (
+                  <View key={review.id} className={`pb-4 mb-4 ${idx !== Math.min(2, userReviews.length - 1) ? 'border-bottom border-gray-50 dark:border-gray-700' : ''}`}>
+                    <View className="flex-row justify-between items-center mb-1">
+                      <Text className="text-sm font-bold text-gray-800 dark:text-white">{review.reviewerName}</Text>
+                      <View className="flex-row">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <IconSymbol 
+                            key={s} 
+                            name="star.fill" 
+                            size={10} 
+                            color={s <= review.rating ? "#eab308" : "#e5e7eb"} 
+                          />
+                        ))}
+                      </View>
+                    </View>
+                    <Text className="text-xs text-gray-500 dark:text-gray-400 italic">"{review.comment}"</Text>
+                    <Text className="text-[8px] text-gray-400 mt-1 uppercase font-bold">En: {review.missionTitle}</Text>
+                  </View>
+                ))}
+                {userReviews.length > 3 && (
+                  <TouchableOpacity className="items-center pt-2">
+                    <Text className="text-xs font-bold text-purple-600">Ver todas las reseñas</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
             </View>
 
             {/* Columna Derecha: Actividad (Solo en PC) */}

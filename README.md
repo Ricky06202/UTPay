@@ -59,6 +59,16 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 
 ## 📓 Bitácora de Desarrollo
 
+### Día 4 (27 de Enero, 2026)
+*   **Estandarización UI/UX (Tareas)**: Se finalizó el proceso de migración terminológica de "Misiones" a "Tareas" en toda la plataforma (navegación, base de datos y UI), mejorando la claridad para el usuario estudiantil.
+*   **Refinamiento del Ciclo de Vida**: Optimización del flujo de trabajo de tareas (Postular -> Escoger -> Terminar -> Finalizar). Se implementó la lógica de persistencia de datos para asegurar que las tareas con interacciones se mantengan en el historial para auditoría, mientras que las vacías se eliminan para mantener la base de datos limpia.
+*   **Seguridad en el Flujo de Pagos**: Implementación de verificaciones de propiedad y estado en los endpoints de la API para prevenir manipulaciones en el proceso de aceptación y finalización de trabajos.
+*   **Integración de UTP Coin en Tareas**: Se automatizaron los pagos mediante el Smart Contract (burn al crear, mint al completar), asegurando la integridad de la economía digital.
+*   **Sistema de Reputación y Reseñas**: Implementación de un sistema de confianza donde los usuarios pueden calificar y reseñar, impactando directamente en el `statHonor` y el `creditScore`.
+*   **Mejoras en el Descubrimiento**: Rediseño de la interfaz de tareas con filtros por categorías, búsqueda en tiempo real y organización por pestañas.
+*   **Sistema RPG de Estadísticas**: Evolución del perfil de usuario hacia un modelo RPG. Se integraron visualmente las estadísticas de mérito (Intelecto, Fortaleza, Estrategia, Zen, Servicio y Honor) vinculadas a la actividad real del estudiante y su reputación en el sistema de tareas.
+*   **Micro-créditos por Mérito**: Implementación del sistema de préstamos basado en el `creditScore`. Los estudiantes con alto desempeño (Score > 80) ahora pueden solicitar micro-créditos en UTP Coin directamente desde la app, con desembolso automático mediante Smart Contracts.
+
 ### Día 3 (26 de Enero, 2026)
 *   **Adopción de Sirato (Chainlens Free)**: Se integró Sirato como el explorador de bloques principal para la red Hyperledger Besu, sustituyendo/complementando a Blockscout. Esto proporciona una interfaz más moderna y transparente para la auditoría de transacciones, bloques y contratos inteligentes, esencial para la transparencia de la tesis.
 *   **Orquestación con Docker Compose**: Configuración completa de los servicios de Sirato (API, Web Frontend, Ingestion Engine y MongoDB) dentro de la red `utpay_net`. Se optimizó el consumo de recursos y la comunicación entre contenedores mediante una arquitectura de microservicios robusta.

@@ -52,7 +52,7 @@ export default function TabLayout() {
           <Tabs.Screen
             name="missions"
             options={{
-              title: 'Misiones',
+              title: 'Tareas',
               tabBarIcon: ({ color }) => <IconSymbol size={28} name="assignment" color={color} />,
             }}
           />
