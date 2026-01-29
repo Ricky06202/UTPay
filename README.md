@@ -59,6 +59,12 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 
 ## 📓 Bitácora de Desarrollo
 
+### Día 5 (29 de Enero, 2026)
+*   **Implementación de Blockscout**: Integración del explorador de bloques profesional Blockscout v6.0.0. Esta herramienta permite una visualización completa de transacciones, bloques, contratos inteligentes y tokens, proporcionando una interfaz de auditoría de grado industrial para la red Besu.
+*   **Infraestructura de Datos**: Configuración de una base de datos PostgreSQL dedicada para indexar la blockchain, permitiendo búsquedas rápidas y visualización de datos históricos.
+*   **Optimización de Nodos Besu**: Se configuró el `node4` en modo **FOREST** (Nodo Histórico/Archivo) para garantizar que Blockscout pueda indexar toda la historia de la red sin limitaciones de almacenamiento.
+*   **Estandarización de Red**: Implementación de IPs estáticas para todos los servicios de infraestructura (nodos, base de datos y explorador), mejorando la estabilidad de la red interna de Docker.
+
 ### Día 4 (27 de Enero, 2026)
 *   **Estandarización UI/UX (Tareas)**: Se finalizó el proceso de migración terminológica de "Misiones" a "Tareas" en toda la plataforma (navegación, base de datos y UI), mejorando la claridad para el usuario estudiantil.
 *   **Refinamiento del Ciclo de Vida**: Optimización del flujo de trabajo de tareas (Postular -> Escoger -> Terminar -> Finalizar). Se implementó la lógica de persistencia de datos para asegurar que las tareas con interacciones se mantengan en el historial para auditoría, mientras que las vacías se eliminan para mantener la base de datos limpia.
@@ -70,12 +76,8 @@ Para garantizar velocidad y escalabilidad en la fase inicial, se ha optado por u
 *   **Micro-créditos por Mérito**: Implementación del sistema de préstamos basado en el `creditScore`. Los estudiantes con alto desempeño (Score > 80) ahora pueden solicitar micro-créditos en UTP Coin directamente desde la app, con desembolso automático mediante Smart Contracts.
 
 ### Día 3 (26 de Enero, 2026)
-*   **Adopción de Sirato (Chainlens Free)**: Se integró Sirato como el explorador de bloques principal para la red Hyperledger Besu, sustituyendo/complementando a Blockscout. Esto proporciona una interfaz más moderna y transparente para la auditoría de transacciones, bloques y contratos inteligentes, esencial para la transparencia de la tesis.
-*   **Orquestación con Docker Compose**: Configuración completa de los servicios de Sirato (API, Web Frontend, Ingestion Engine y MongoDB) dentro de la red `utpay_net`. Se optimizó el consumo de recursos y la comunicación entre contenedores mediante una arquitectura de microservicios robusta.
-*   **Resolución de Conflictos de Red**: Implementación de un proxy inverso con **Nginx** para gestionar el tráfico hacia Sirato en el puerto **4000**, mientras que Blockscout fue remapeado al puerto **4001**. Esto asegura que ambos exploradores coexistan sin conflictos de puertos locales.
-*   **Optimización de Conectividad Redis**: Corrección de errores críticos de conexión en `sirato-api` mediante la inyección de variables de entorno multiversión (`SPRING_REDIS_HOST`, `REDIS_HOST`), asegurando una persistencia de datos y caché eficiente.
-*   **Sincronización de Datos en Tiempo Real**: Verificación de la ingesta de datos desde los nodos de Besu (node1), logrando una sincronización completa del historial de la red y permitiendo la visualización inmediata de la actividad del UTP Coin.
-*   **Health Checks y Diagnóstico**: Implementación de endpoints de salud y monitoreo para todos los servicios de infraestructura, garantizando una disponibilidad del 100% durante las pruebas de estrés de la red.
+*   **Exploración de Herramientas de Auditoría**: Integración y evaluación de exploradores de bloques para la red Hyperledger Besu, buscando la mejor transparencia para la tesis.
+*   **Orquestación con Docker Compose**: Configuración completa de los servicios de infraestructura dentro de la red `utpay_net`, optimizando el consumo de recursos.
 *   **Gestión de Suministro (Mint & Burn)**: Implementación de funciones de acuñación (`mint`) y quema (`burn`) en el contrato inteligente del UTP Coin. Esto permite un control dinámico sobre el suministro total de la moneda, facilitando la simulación de políticas monetarias universitarias y la gestión de incentivos para estudiantes.
 
 ### Día 2 (25 de Enero, 2026)

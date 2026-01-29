@@ -25,15 +25,13 @@ cd apps/api
 npm run db:push
 ```
 
-## 3. Reiniciar el Indexador (Sirato)
-Si la blockchain cambió, es recomendable reiniciar el indexador para que detecte el nuevo contrato:
+## 3. Verificar Explorador (Blockscout)
+Si la blockchain cambió, Blockscout detectará los nuevos bloques automáticamente. Puedes acceder en:
+- **Blockscout**: http://localhost:4000
 
-```bash
-docker restart sirato-api sirato-mongo
-```
+*Nota: La primera vez que inicies después de un reset, Blockscout puede tardar unos segundos en re-indexar los nuevos bloques.*
 
-## 4. Verificar en el Frontend
-Asegúrate de que la dirección del contrato en `apps/api/src/utils/blockchain.ts` coincida con la generada en `blockchain/build/address.json`.
+Asegúrate de que el contrato desplegado coincida con la dirección en `apps/api/src/utils/blockchain.ts`.
 
 ---
 **Nota:** El sistema de mérito requiere que los estudiantes tengan un Score > 80 para pedir préstamos. Puedes usar el endpoint `POST /users/update-merit` para simular el progreso del estudiante.

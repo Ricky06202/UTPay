@@ -10,7 +10,7 @@
     }
   ],
   "vars": {
-    "RPC_URL": "https://newark-beyond-profiles-calgary.trycloudflare.com"
+    "RPC_URL": "https://cordless-works-refrigerator-combination.trycloudflare.com"
   },
   "triggers": {
     "crons": ["* * * * *"]
